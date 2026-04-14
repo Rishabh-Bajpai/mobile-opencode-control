@@ -1,6 +1,16 @@
 # OpenCode Web Controller
 
-Mobile-first, Telegram-like web controller for local OpenCode sessions.
+**Build full-stack apps from your phone. Work from anywhere.**
+
+A mobile-first, Telegram-like web controller for local OpenCode sessions. No desktop required, no expensive API subscriptions - just connect to OpenCode's free models or any OpenAI-compatible endpoint and start coding from your phone.
+
+- **Mobile-first** — Control your dev environment from phone or desktop
+- **Voice-ready** — Built-in STT/TTS for hands-free coding
+- **File explorer** — Browse, search, preview, and download project files directly in-chat
+- **Scheduled tasks** — Set up autonomous agents that run on autopilot
+- **Approval flow** — Review and approve dangerous changes before execution
+- **Real-time streaming** — Watch code being written as it happens
+- **Multi-project** — Manage unlimited projects with instant switching
 
 ## Stack
 
