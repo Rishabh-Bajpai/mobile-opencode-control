@@ -119,11 +119,31 @@ input {
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   min-width: 256px;
   min-height: 0;
   overflow: hidden;
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.03);
+}
+
+.sidebar-phone-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.sidebar-phone-link a {
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.sidebar-phone-link a:hover {
+  text-decoration: underline;
 }
 
 .sidebar-top {

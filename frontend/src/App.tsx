@@ -5324,6 +5324,17 @@ export function App() {
             void loadMoreProjects();
           }}
         />
+
+        <div className="sidebar-phone-link">
+          <span>📱 Open on phone:</span>
+          <a
+            href={`http://${window.location.hostname}:${window.location.port || 5173}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {window.location.hostname}:{window.location.port || 5173}
+          </a>
+        </div>
       </aside>
 
       <div
