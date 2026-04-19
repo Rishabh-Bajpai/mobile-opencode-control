@@ -16,13 +16,9 @@ A mobile-first, Telegram-like web controller for local OpenCode sessions. No des
 
 ### Mobile Views
 
-| Project List | Chat View | Files View |
-|-------------|-----------|------------|
-| ![Mobile Project List](docs/resources/screenshots/mobile-project-list.png) | ![Mobile Chat](docs/resources/screenshots/mobile-view.png) | ![Mobile Files](docs/resources/screenshots/mobile-files-view.png) |
-
-| Menu |
-|------|
-| ![Mobile Menu](docs/resources/screenshots/mobile-menu-view.png) |
+| Project List | Chat View | Files View | Menu |
+|-------------|-----------|------------|------|
+| ![Mobile Project List](docs/resources/screenshots/mobile-project-list.png) | ![Mobile Chat](docs/resources/screenshots/mobile-view.png) | ![Mobile Files](docs/resources/screenshots/mobile-files-view.png) | ![Mobile Menu](docs/resources/screenshots/mobile-menu-view.png) |
 
 ### Desktop Views
 
