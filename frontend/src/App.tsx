@@ -522,6 +522,23 @@ function buildPartInstanceKey(scope: string, part: Record<string, unknown>, inde
   return `${scope}:${index}:${type}:${tool}:${status}:${summary || detail}`;
 }
 
+function areBooleanMapsEqual(
+  left: Record<string, boolean>,
+  right: Record<string, boolean>
+) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  for (const key of leftKeys) {
+    if (!(key in right) || left[key] !== right[key]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function compactPathLabel(value: string) {
   const normalized = value.replace(/\\/g, "/").trim();
   if (!normalized) {
@@ -3698,19 +3715,19 @@ export function App() {
         id: entry.id,
         childIds: entry.childIds,
       }));
-      return Object.keys(next).length === Object.keys(current).length ? current : next;
+      return areBooleanMapsEqual(current, next) ? current : next;
     });
     setExpandedMessageEntries((current) => {
       const next = Object.fromEntries(
         Object.entries(current).filter(([entryId]) => activeMessageIds.has(entryId))
       );
-      return Object.keys(next).length === Object.keys(current).length ? current : next;
+      return areBooleanMapsEqual(current, next) ? current : next;
     });
     setExpandedPartEntries((current) => {
       const next = Object.fromEntries(
         Object.entries(current).filter(([entryId]) => activePartKeys.has(entryId))
       );
-      return Object.keys(next).length === Object.keys(current).length ? current : next;
+      return areBooleanMapsEqual(current, next) ? current : next;
     });
   }, [renderedTimelineEntries]);
 
@@ -4523,7 +4540,6 @@ export function App() {
     }
 
     if (isChatNearBottom) {
-      body.scrollTop = body.scrollHeight;
       latestReadEntryIdByChatRef.current[activeChatKey] = latestEntryId;
       setUnreadEntryId(null);
       return;
@@ -4553,14 +4569,24 @@ export function App() {
   }, [activeChatKey, timelineEntries]);
 
   useLayoutEffect(() => {
-    const pendingAnchor = pendingScrollAnchorRef.current;
-    if (!pendingAnchor || isChatNearBottom) {
+    const body = chatBodyRef.current;
+    if (!body) {
+      pendingScrollAnchorRef.current = null;
       return;
     }
 
-    const body = chatBodyRef.current;
+    if (isChatNearBottom) {
+      body.scrollTop = Math.max(0, body.scrollHeight - body.clientHeight);
+      return;
+    }
+
+    const pendingAnchor = pendingScrollAnchorRef.current;
+    if (!pendingAnchor) {
+      return;
+    }
+
     const entry = timelineEntryRefs.current[pendingAnchor.entryId];
-    if (!body || !entry) {
+    if (!entry) {
       pendingScrollAnchorRef.current = null;
       return;
     }

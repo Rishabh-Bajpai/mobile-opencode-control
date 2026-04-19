@@ -937,6 +937,10 @@ input {
   flex-wrap: wrap;
 }
 
+.notification-actions .secondary-button {
+  min-width: 7rem;
+}
+
 .toolbar-card-head {
   display: grid;
   gap: 0.1rem;
@@ -2985,5 +2989,15 @@ input {
 
   .mobile-settings-screen .toolbar-card-head {
     margin-bottom: 0.5rem;
+  }
+
+  .mobile-settings-screen .notification-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mobile-settings-screen .notification-actions .secondary-button {
+    width: 100%;
+    min-width: 0;
   }
 }
