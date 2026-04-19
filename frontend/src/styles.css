@@ -935,10 +935,13 @@ input {
   display: flex;
   gap: 0.55rem;
   flex-wrap: wrap;
+  margin-top: 0.15rem;
 }
 
 .notification-actions .secondary-button {
   min-width: 7rem;
+  min-height: 40px;
+  padding: 0 0.8rem;
 }
 
 .toolbar-card-head {
@@ -1235,23 +1238,22 @@ input {
   overflow: hidden;
 }
 
-.message-parts-collapsed > summary {
+.message-parts-toggle {
   cursor: pointer;
   padding: 0.5rem 0.62rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  list-style: none;
   color: #d0ddeb;
   user-select: none;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
 }
 
-.message-parts-collapsed > summary::-webkit-details-marker {
-  display: none;
-}
-
-.message-parts-collapsed > summary small {
+.message-parts-toggle small {
   color: var(--text-muted);
   font-size: 0.72rem;
   text-align: right;
@@ -1266,7 +1268,7 @@ input {
   gap: 0.22rem;
 }
 
-.parts-list.compact .part-block summary {
+.parts-list.compact .part-block-toggle {
   padding: 0.42rem 0.56rem;
 }
 
@@ -1277,7 +1279,7 @@ input {
   overflow: hidden;
 }
 
-.part-block summary {
+.part-block-toggle {
   cursor: pointer;
   padding: 0.48rem 0.62rem;
   font-size: 0.81rem;
@@ -1285,9 +1287,13 @@ input {
   user-select: none;
   display: grid;
   gap: 0.12rem;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
 }
 
-.part-block summary small {
+.part-block-toggle small {
   color: var(--text-muted);
   font-size: 0.72rem;
 }
@@ -2245,16 +2251,15 @@ input {
   overflow: hidden;
 }
 
-.agent-activity-card > summary {
-  list-style: none;
+.agent-activity-toggle {
   cursor: pointer;
   display: grid;
   gap: 0.22rem;
   padding: 0.58rem 0.72rem;
-}
-
-.agent-activity-card > summary::-webkit-details-marker {
-  display: none;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
 }
 
 .agent-activity-summary,
@@ -2756,7 +2761,7 @@ input {
     background: rgba(27, 41, 57, 0.92);
   }
 
-  .agent-activity-card > summary {
+  .agent-activity-toggle {
     padding: 0.52rem 0.66rem;
   }
 

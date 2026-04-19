@@ -515,11 +515,7 @@ function truncateSummary(value: string, maxLength = 96) {
 
 function buildPartInstanceKey(scope: string, part: Record<string, unknown>, index: number) {
   const type = typeof part.type === "string" ? part.type : "part";
-  const tool = typeof part.tool === "string" ? part.tool : "";
-  const status = typeof part.status === "string" ? part.status : "";
-  const detail = typeof part.detail === "string" ? part.detail : "";
-  const summary = summarizePart(part);
-  return `${scope}:${index}:${type}:${tool}:${status}:${summary || detail}`;
+  return `${scope}:${index}:${type}`;
 }
 
 function areBooleanMapsEqual(
@@ -920,32 +916,36 @@ function MessagePartCard({
   const reasoningText = label === "Thinking" ? extractReasoningPlainText(part) : "";
 
   return (
-    <details
-      className={`part-block part-${partType}`}
-      open={open}
-      onToggle={onToggle ? (event) => onToggle(event.currentTarget.open) : undefined}
-    >
-      <summary>
+    <div className={`part-block part-${partType} ${open ? "open" : ""}`}>
+      <button
+        type="button"
+        className="part-block-toggle"
+        onClick={() => onToggle?.(!open)}
+        aria-expanded={open}
+      >
         <span>{label}</span>
         {summary ? <small>{summary}</small> : null}
-      </summary>
-      {label === "Thinking" ? (
-        reasoningText ? (
-          <div className="message-rich-text">
-            <p>{reasoningText}</p>
-          </div>
+      </button>
+      {open ? (
+        label === "Thinking" ? (
+          reasoningText ? (
+            <div className="message-rich-text">
+              <p>{reasoningText}</p>
+            </div>
+          ) : (
+            <p>Reasoning in progress</p>
+          )
         ) : (
-          <p>Reasoning in progress</p>
+          <pre>{JSON.stringify(part, null, 2)}</pre>
         )
-      ) : (
-        <pre>{JSON.stringify(part, null, 2)}</pre>
-      )}
-    </details>
+      ) : null}
+    </div>
   );
 }
 
 function AgentActivityCard({
   partItems,
+  stateKey,
   latestLabel,
   latestDetail,
   actionSummaries,
@@ -956,6 +956,7 @@ function AgentActivityCard({
   onPartToggle,
 }: {
   partItems: Array<{ key: string; part: Record<string, unknown> }>;
+  stateKey: string;
   latestLabel: string;
   latestDetail: string;
   actionSummaries: string[];
@@ -973,8 +974,13 @@ function AgentActivityCard({
 
   return (
     <div className="message-row other activity-row">
-      <details className="agent-activity-card" open={open} onToggle={(event) => onToggle(event.currentTarget.open)}>
-        <summary>
+      <div className={`agent-activity-card ${open ? "open" : ""}`} data-activity-key={stateKey}>
+        <button
+          type="button"
+          className="agent-activity-toggle"
+          onClick={() => onToggle(!open)}
+          aria-expanded={open}
+        >
           <div className="agent-activity-summary">
             <strong>Agent activity</strong>
             <small>{partItems.length} actions</small>
@@ -983,8 +989,8 @@ function AgentActivityCard({
             <span>{latestLabel}</span>
             <small>{timestamp}</small>
           </div>
-        </summary>
-        <div className="agent-activity-body">
+        </button>
+        {open ? <div className="agent-activity-body">
           {latestDetail ? <div className="agent-activity-detail">Latest: {latestDetail}</div> : null}
           {actionSummaries.length > 0 ? (
             <div className="agent-activity-tags">
@@ -1003,8 +1009,8 @@ function AgentActivityCard({
               />
             ))}
           </div>
-        </div>
-      </details>
+        </div> : null}
+      </div>
     </div>
   );
 }
@@ -1184,6 +1190,7 @@ type RenderedTimelineEntry =
   | {
       kind: "activity";
       id: string;
+      stateKey: string;
       createdAt: string;
       messages: ChatMessage[];
       childIds: string[];
@@ -1250,6 +1257,7 @@ function buildGroupedTimelineEntries(entries: TimelineEntry[]): RenderedTimeline
     next.push({
       kind: "activity",
       id: `a-${firstMessage.id}-${firstMessage.createdAt}`,
+      stateKey: `activity:${firstMessage.id}:${firstMessage.createdAt}`,
       createdAt: firstMessage.createdAt,
       messages: pendingMessages,
       childIds: pendingMessages.map((message) => `m-${message.id}-${message.createdAt}`),
@@ -1844,22 +1852,25 @@ function CollapsedMessageParts({
   const activitySummary = summarizeActivityParts(nonTextParts);
 
   return (
-    <details
-      className="message-parts-collapsed"
-      open={groupOpen}
-      onToggle={(event) => onGroupToggle(event.currentTarget.open)}
-    >
-      <summary>
+    <div className={`message-parts-collapsed ${groupOpen ? "open" : ""}`}>
+      <button
+        type="button"
+        className="message-parts-toggle"
+        onClick={() => onGroupToggle(!groupOpen)}
+        aria-expanded={groupOpen}
+      >
         <span>Activity details</span>
         <small>{activitySummary.actionSummaries.join(" · ") || `${nonTextParts.length} actions`}</small>
-      </summary>
-      <MessageParts
-        parts={nonTextParts}
-        partScope={partScope}
-        expandedParts={expandedParts}
-        onPartToggle={onPartToggle}
-      />
-    </details>
+      </button>
+      {groupOpen ? (
+        <MessageParts
+          parts={nonTextParts}
+          partScope={partScope}
+          expandedParts={expandedParts}
+          onPartToggle={onPartToggle}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -2934,7 +2945,6 @@ export function App() {
   const pendingMessageRefreshRef = useRef<string | null>(null);
   const pendingScrollAnchorRef = useRef<{ entryId: string; top: number } | null>(null);
   const lastFinalAssistantMessageIdByChatRef = useRef<Record<string, string>>({});
-  const previousActivityEntriesRef = useRef<Array<{ id: string; childIds: string[] }>>([]);
   const taskLoadRequestRef = useRef(0);
   const sessionLoadRequestRef = useRef(0);
   const projectFilePreviewRequestRef = useRef(0);
@@ -2999,6 +3009,12 @@ export function App() {
     }
 
     pendingScrollAnchorRef.current = null;
+  }
+
+  function resetTimelineExpansionState() {
+    setExpandedActivityEntries({});
+    setExpandedMessageEntries({});
+    setExpandedPartEntries({});
   }
 
   function focusSchedulerCard() {
@@ -3658,25 +3674,10 @@ export function App() {
   }, [aborting, activeProject?.sessionStatus, fixtureMode, hasStreamingActivity, runIntentActive, sending, streamStatus]);
 
   useEffect(() => {
-    if (!activeChatKey) {
-      setExpandedActivityEntries({});
-      setExpandedMessageEntries({});
-      setExpandedPartEntries({});
-      previousActivityEntriesRef.current = [];
-      return;
-    }
-
-    setExpandedActivityEntries({});
-    setExpandedMessageEntries({});
-    setExpandedPartEntries({});
-    previousActivityEntriesRef.current = [];
-  }, [activeChatKey]);
-
-  useEffect(() => {
     const activityEntries = renderedTimelineEntries.filter(
       (entry): entry is Extract<RenderedTimelineEntry, { kind: "activity" }> => entry.kind === "activity"
     );
-    const activeActivityIds = new Set(activityEntries.map((entry) => entry.id));
+    const activeActivityIds = new Set(activityEntries.map((entry) => entry.stateKey));
     const activeMessageIds = new Set(
       renderedTimelineEntries
         .filter((entry) => entry.kind === "message")
@@ -3697,24 +3698,9 @@ export function App() {
     );
 
     setExpandedActivityEntries((current) => {
-      const next: Record<string, boolean> = {};
-      for (const entry of activityEntries) {
-        if (entry.id in current) {
-          next[entry.id] = current[entry.id];
-          continue;
-        }
-
-        const previousMatch = previousActivityEntriesRef.current.find((item) =>
-          item.childIds.some((childId) => entry.childIds.includes(childId))
-        );
-        if (previousMatch && previousMatch.id in current) {
-          next[entry.id] = current[previousMatch.id];
-        }
-      }
-      previousActivityEntriesRef.current = activityEntries.map((entry) => ({
-        id: entry.id,
-        childIds: entry.childIds,
-      }));
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([entryId]) => activeActivityIds.has(entryId))
+      );
       return areBooleanMapsEqual(current, next) ? current : next;
     });
     setExpandedMessageEntries((current) => {
@@ -4784,6 +4770,7 @@ export function App() {
     setStopFeedbackLabel(null);
     setStopFeedbackUntilMs(null);
     setActiveSessionId(null);
+    resetTimelineExpansionState();
     setUnreadEntryId(null);
     setIsChatNearBottom(true);
     setMobileProjectListOpen(false);
@@ -4845,6 +4832,7 @@ export function App() {
     setProjectError(null);
     setStopFeedbackLabel(null);
     setStopFeedbackUntilMs(null);
+    resetTimelineExpansionState();
     setUnreadEntryId(null);
     setIsChatNearBottom(true);
     setMobileSettingsOpen(false);
@@ -4877,6 +4865,7 @@ export function App() {
     setProjectError(null);
     setStopFeedbackLabel(null);
     setStopFeedbackUntilMs(null);
+    resetTimelineExpansionState();
     setUnreadEntryId(null);
     setIsChatNearBottom(true);
     setMobileSettingsOpen(false);
@@ -4925,6 +4914,7 @@ export function App() {
     setProjectError(null);
     setStopFeedbackLabel(null);
     setStopFeedbackUntilMs(null);
+    resetTimelineExpansionState();
     setUnreadEntryId(null);
     setIsChatNearBottom(true);
     setMobileSettingsOpen(false);
@@ -6002,15 +5992,16 @@ export function App() {
                       ) : entry.kind === "activity" ? (
                         <AgentActivityCard
                           partItems={entry.partItems}
+                          stateKey={entry.stateKey}
                           latestLabel={entry.latestLabel}
                           latestDetail={entry.latestDetail}
                           actionSummaries={entry.actionSummaries}
                           createdAt={entry.createdAt}
-                          open={expandedActivityEntries[entry.id] ?? false}
+                          open={expandedActivityEntries[entry.stateKey] ?? false}
                           onToggle={(nextOpen) => {
                             setExpandedActivityEntries((current) => ({
                               ...current,
-                              [entry.id]: nextOpen,
+                              [entry.stateKey]: nextOpen,
                             }));
                           }}
                           expandedParts={expandedPartEntries}
