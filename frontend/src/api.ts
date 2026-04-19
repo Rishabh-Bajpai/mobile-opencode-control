@@ -153,6 +153,17 @@ export async function fetchDiff(projectId: string): Promise<{
   return request(`/api/projects/${projectId}/diff`);
 }
 
+export async function fetchPendingApprovals(projectId: string): Promise<{
+  approvals: Array<{
+    permissionId: string;
+    title: string;
+    details: string;
+    createdAt: string;
+  }>;
+}> {
+  return request(`/api/projects/${projectId}/approvals`);
+}
+
 export async function respondPermission(
   projectId: string,
   permissionId: string,

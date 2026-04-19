@@ -920,6 +920,23 @@ input {
   padding-bottom: 0;
 }
 
+.notification-controls {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.notification-controls small {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.notification-actions {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
 .toolbar-card-head {
   display: grid;
   gap: 0.1rem;

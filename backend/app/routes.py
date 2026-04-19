@@ -306,6 +306,53 @@ def _project_setting_key(project_id: int, suffix: str) -> str:
     return f"project:{project_id}:{suffix}"
 
 
+def _get_project_pending_approvals(
+    project_id: int, session_id: str | None = None
+) -> list[dict]:
+    raw = _get_setting(_project_setting_key(project_id, "pending_approvals"), "[]") or "[]"
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    approvals: list[dict] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        permission_id = str(item.get("permissionId") or "").strip()
+        if not permission_id:
+            continue
+        approvals.append(
+            {
+                "permissionId": permission_id,
+                "sessionId": str(item.get("sessionId") or "").strip() or None,
+                "title": str(item.get("title") or "Permission requested").strip()
+                or "Permission requested",
+                "details": str(item.get("details") or "").strip(),
+                "createdAt": str(item.get("createdAt") or _utc_now().isoformat()),
+            }
+        )
+    if session_id is None:
+        return approvals
+    return [
+        item
+        for item in approvals
+        if str(item.get("sessionId") or "").strip() == session_id
+    ]
+
+
+def _set_project_pending_approvals(project_id: int, approvals: list[dict]) -> None:
+    _set_setting(
+        _project_setting_key(project_id, "pending_approvals"),
+        json.dumps(approvals),
+    )
+
+
+def _clear_project_pending_approvals(project_id: int) -> None:
+    _delete_setting(_project_setting_key(project_id, "pending_approvals"))
+
+
 def _get_project_runtime_selection(project_id: int) -> dict[str, str | None]:
     return {
         "model": _get_setting(_project_setting_key(project_id, "model")),
@@ -486,6 +533,128 @@ def _extract_data_payload(event_lines: list[str]) -> str:
         if line.startswith("data:"):
             chunks.append(line[5:].strip())
     return "\n".join(chunks).strip()
+
+
+def _extract_json_event_payload(event_lines: list[str]) -> dict | None:
+    payload = _extract_data_payload(event_lines)
+    if not payload:
+        return None
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None
+
+
+def _find_permission_id(value) -> str | None:
+    if isinstance(value, str):
+        return None
+
+    if isinstance(value, list):
+        for item in value:
+            found = _find_permission_id(item)
+            if found:
+                return found
+        return None
+
+    if isinstance(value, dict):
+        for candidate in (
+            value.get("permissionID"),
+            value.get("permissionId"),
+            value.get("permission_id"),
+            value.get("id"),
+        ):
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        for item in value.values():
+            found = _find_permission_id(item)
+            if found:
+                return found
+    return None
+
+
+def _is_permission_resolved(value) -> bool:
+    if isinstance(value, str):
+        lowered = value.lower()
+        return (
+            "allow" in lowered
+            or "deny" in lowered
+            or "reject" in lowered
+            or "approve" in lowered
+        )
+
+    if isinstance(value, list):
+        return any(_is_permission_resolved(item) for item in value)
+
+    if isinstance(value, dict):
+        response = value.get("response") or value.get("decision") or value.get("action")
+        if isinstance(response, str):
+            return True
+        return any(_is_permission_resolved(item) for item in value.values())
+
+    return False
+
+
+def _parse_permission_event(event_lines: list[str]) -> tuple[dict | None, str | None]:
+    payload = _extract_json_event_payload(event_lines)
+    if not payload:
+        return None, None
+
+    event_type = str(payload.get("type") or "").lower()
+    if "permission" not in event_type:
+        return None, None
+
+    properties = payload.get("properties") if isinstance(payload.get("properties"), dict) else payload
+    permission_id = _find_permission_id(properties)
+    if not permission_id:
+        return None, None
+
+    if _is_permission_resolved(properties):
+        return None, permission_id
+
+    details = json.dumps(properties)
+    return {
+        "permissionId": permission_id,
+        "title": "Permission requested",
+        "details": details,
+        "createdAt": _utc_now().isoformat(),
+    }, None
+
+
+def _update_pending_approvals_from_event(
+    project_id: int, session_id: str, event_lines: list[str]
+) -> None:
+    request_item, resolved_permission_id = _parse_permission_event(event_lines)
+    if request_item is None and resolved_permission_id is None:
+        return
+
+    approvals = _get_project_pending_approvals(project_id)
+    if resolved_permission_id:
+        next_approvals = [
+            item
+            for item in approvals
+            if str(item.get("permissionId") or "") != resolved_permission_id
+        ]
+    else:
+        assert request_item is not None
+        request_item["sessionId"] = session_id
+        next_approvals = [
+            item
+            for item in approvals
+            if not (
+                str(item.get("permissionId") or "") == request_item["permissionId"]
+                and str(item.get("sessionId") or "") == session_id
+            )
+        ]
+        next_approvals.append(request_item)
+
+    if next_approvals:
+        _set_project_pending_approvals(project_id, next_approvals)
+    else:
+        _clear_project_pending_approvals(project_id)
+    db.session.commit()
 
 
 def _event_matches_session(event_lines: list[str], session_id: str) -> bool:
@@ -1819,6 +1988,29 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         except Exception as exc:
             return jsonify({"error": f"Failed to load diff: {exc}"}), 502
 
+    @app.get("/api/projects/<int:project_id>/approvals")
+    @auth_required
+    def get_project_approvals(project_id: int):
+        project = Project.query.get(project_id)
+        if project is None:
+            return jsonify({"error": "Project not found"}), 404
+
+        session_id = project.last_session_id
+        if session_id:
+            try:
+                session_id = _resolve_project_session(
+                    project,
+                    opencode_client,
+                    session_id=session_id,
+                    create_if_missing=False,
+                )
+            except Exception:
+                session_id = project.last_session_id
+
+        return jsonify(
+            {"approvals": _get_project_pending_approvals(project.id, session_id)}
+        )
+
     @app.get("/api/projects/<int:project_id>/stream")
     @auth_required
     def stream_project_events(project_id: int):
@@ -1854,6 +2046,9 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
                             if event_lines and _event_matches_session(
                                 event_lines, session_id
                             ):
+                                _update_pending_approvals_from_event(
+                                    project.id, session_id, event_lines
+                                )
                                 data = json.dumps(
                                     {"sessionId": session_id, "event": event_lines}
                                 )
@@ -1955,6 +2150,19 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
                 response_value=normalized,
                 remember=remember,
             )
+            approvals = _get_project_pending_approvals(project.id)
+            next_approvals = [
+                item
+                for item in approvals
+                if not (
+                    str(item.get("permissionId") or "") == permission_id
+                    and str(item.get("sessionId") or "") == session_id
+                )
+            ]
+            if next_approvals:
+                _set_project_pending_approvals(project.id, next_approvals)
+            else:
+                _clear_project_pending_approvals(project.id)
             project.last_activity_at = _utc_now()
             project.session_status = "idle"
             db.session.commit()

@@ -14,6 +14,25 @@ Do not start the next milestone until the current milestone is fully validated.
 
 ---
 
+## Current Bugfix Plan - Chat UX Stability
+
+Goal: fix session loading latency, message expansion stability, scroll anchoring during live updates, and background final-message notifications.
+
+### Tasks
+
+- [ ] Reduce chat hydration latency by prioritizing message history and deferring secondary loads where possible.
+- [ ] Stop full chat reloads on every SSE event and replace them with lighter incremental refresh behavior.
+- [ ] Add a dedicated initial pending-approvals fetch path so approvals are present when reopening a chat.
+- [ ] Make activity card expansion state fully controlled and independent from new incoming messages.
+- [ ] Make nested part and submessage expansion state stable across rerenders and live inserts.
+- [ ] Reset all message/activity toggles to closed when opening a chat, without auto-opening the latest activity.
+- [ ] Preserve viewport position when the user is reading older content and new messages/activity arrive.
+- [ ] Keep unread tracking independent from forced viewport jumps.
+- [ ] Add browser notifications for new final agent messages when the tab is backgrounded.
+- [ ] Verify the full flow on desktop and mobile-sized layouts using the local dev scripts.
+
+---
+
 ## Milestone 0 - Project Bootstrap and Environment (Gate 0)
 
 Goal: create a reproducible local dev environment and project skeleton.

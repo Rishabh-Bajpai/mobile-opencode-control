@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, UIEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, UIEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   abortSession,
@@ -10,6 +10,7 @@ import {
   fetchAppState,
   fetchMessages,
   fetchOpenCodeCommands,
+  fetchPendingApprovals,
   fetchProjectRuntime,
   fetchProjectSessions,
   fetchProjectFileContent,
@@ -257,6 +258,48 @@ function SessionControls({
   );
 }
 
+function NotificationControls({
+  supported,
+  enabled,
+  permission,
+  onEnable,
+  onDisable,
+}: {
+  supported: boolean;
+  enabled: boolean;
+  permission: NotificationPermission | "unsupported";
+  onEnable: () => void;
+  onDisable: () => void;
+}) {
+  const statusLabel = !supported
+    ? "Browser notifications are not supported here."
+    : !enabled
+    ? "Notifications are off."
+    : permission === "granted"
+    ? "Notifications are on for final agent replies."
+    : permission === "denied"
+    ? "Browser permission is blocked. Enable it in site settings."
+    : "Notifications will turn on after browser permission is granted.";
+
+  return (
+    <div className="notification-controls">
+      <div className="toolbar-card-head">
+        <strong>Notifications</strong>
+        <span>Final agent replies in the background</span>
+      </div>
+      <small>{statusLabel}</small>
+      <div className="notification-actions">
+        <button type="button" className="secondary-button" onClick={onEnable} disabled={!supported || enabled}>
+          Turn on
+        </button>
+        <button type="button" className="secondary-button" onClick={onDisable} disabled={!enabled}>
+          Turn off
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CommandHelpBar({
   commands,
   onInsert,
@@ -468,6 +511,15 @@ function truncateSummary(value: string, maxLength = 96) {
     return normalized;
   }
   return `${normalized.slice(0, maxLength - 1).trimEnd()}...`;
+}
+
+function buildPartInstanceKey(scope: string, part: Record<string, unknown>, index: number) {
+  const type = typeof part.type === "string" ? part.type : "part";
+  const tool = typeof part.tool === "string" ? part.tool : "";
+  const status = typeof part.status === "string" ? part.status : "";
+  const detail = typeof part.detail === "string" ? part.detail : "";
+  const summary = summarizePart(part);
+  return `${scope}:${index}:${type}:${tool}:${status}:${summary || detail}`;
 }
 
 function compactPathLabel(value: string) {
@@ -836,14 +888,26 @@ function RichMessageText({ text }: { text: string }) {
   return <div className="message-rich-text">{nodes}</div>;
 }
 
-function MessagePartCard({ part }: { part: Record<string, unknown> }) {
+function MessagePartCard({
+  part,
+  open = false,
+  onToggle,
+}: {
+  part: Record<string, unknown>;
+  open?: boolean;
+  onToggle?: (nextOpen: boolean) => void;
+}) {
   const partType = typeof part.type === "string" ? part.type : "part";
   const label = getPartActivityLabel(part);
   const summary = summarizePart(part);
   const reasoningText = label === "Thinking" ? extractReasoningPlainText(part) : "";
 
   return (
-    <details className={`part-block part-${partType}`}>
+    <details
+      className={`part-block part-${partType}`}
+      open={open}
+      onToggle={onToggle ? (event) => onToggle(event.currentTarget.open) : undefined}
+    >
       <summary>
         <span>{label}</span>
         {summary ? <small>{summary}</small> : null}
@@ -864,21 +928,25 @@ function MessagePartCard({ part }: { part: Record<string, unknown> }) {
 }
 
 function AgentActivityCard({
-  parts,
+  partItems,
   latestLabel,
   latestDetail,
   actionSummaries,
   createdAt,
   open,
   onToggle,
+  expandedParts,
+  onPartToggle,
 }: {
-  parts: Array<Record<string, unknown>>;
+  partItems: Array<{ key: string; part: Record<string, unknown> }>;
   latestLabel: string;
   latestDetail: string;
   actionSummaries: string[];
   createdAt: string;
   open: boolean;
   onToggle: (nextOpen: boolean) => void;
+  expandedParts: Record<string, boolean>;
+  onPartToggle: (partKey: string, nextOpen: boolean) => void;
 }) {
   const timestamp = new Date(createdAt).toLocaleTimeString([], {
     hour: "2-digit",
@@ -892,7 +960,7 @@ function AgentActivityCard({
         <summary>
           <div className="agent-activity-summary">
             <strong>Agent activity</strong>
-            <small>{parts.length} actions</small>
+            <small>{partItems.length} actions</small>
           </div>
           <div className="agent-activity-meta">
             <span>{latestLabel}</span>
@@ -909,10 +977,12 @@ function AgentActivityCard({
             </div>
           ) : null}
           <div className="parts-list compact">
-            {parts.map((part, index) => (
+            {partItems.map(({ key, part }) => (
               <MessagePartCard
-                key={`${typeof part.type === "string" ? part.type : "part"}-${index}-${createdAt}`}
+                key={key}
                 part={part}
+                open={expandedParts[key] ?? false}
+                onToggle={(nextOpen) => onPartToggle(key, nextOpen)}
               />
             ))}
           </div>
@@ -1100,7 +1170,7 @@ type RenderedTimelineEntry =
       createdAt: string;
       messages: ChatMessage[];
       childIds: string[];
-      parts: Array<Record<string, unknown>>;
+      partItems: Array<{ key: string; part: Record<string, unknown> }>;
       latestLabel: string;
       latestDetail: string;
       actionSummaries: string[];
@@ -1151,7 +1221,13 @@ function buildGroupedTimelineEntries(entries: TimelineEntry[]): RenderedTimeline
     if (pendingMessages.length === 0) {
       return;
     }
-    const parts = pendingMessages.flatMap((message) => getNonTextParts(message));
+    const partItems = pendingMessages.flatMap((message) =>
+      getNonTextParts(message).map((part, index) => ({
+        key: buildPartInstanceKey(`activity:${message.id}:${message.createdAt}`, part, index),
+        part,
+      }))
+    );
+    const parts = partItems.map((item) => item.part);
     const activitySummary = summarizeActivityParts(parts);
     const firstMessage = pendingMessages[0];
     next.push({
@@ -1160,7 +1236,7 @@ function buildGroupedTimelineEntries(entries: TimelineEntry[]): RenderedTimeline
       createdAt: firstMessage.createdAt,
       messages: pendingMessages,
       childIds: pendingMessages.map((message) => `m-${message.id}-${message.createdAt}`),
-      parts,
+      partItems,
       latestLabel: activitySummary.latestLabel,
       latestDetail: activitySummary.latestDetail,
       actionSummaries: activitySummary.actionSummaries,
@@ -1183,6 +1259,8 @@ function buildGroupedTimelineEntries(entries: TimelineEntry[]): RenderedTimeline
 
 type TelemetryMarkerCategory = "search" | "project" | "chat" | "stream" | "system";
 type TelemetryTimeWindow = "1m" | "5m" | "15m" | "all";
+
+const NOTIFICATION_PREFERENCE_KEY = "opencode:final-message-notifications";
 
 const TELEMETRY_CATEGORIES: TelemetryMarkerCategory[] = [
   "search",
@@ -1696,7 +1774,17 @@ function VirtualizedProjectList({
   );
 }
 
-function MessageParts({ parts }: { parts: Array<Record<string, unknown>> }) {
+function MessageParts({
+  parts,
+  partScope,
+  expandedParts,
+  onPartToggle,
+}: {
+  parts: Array<Record<string, unknown>>;
+  partScope: string;
+  expandedParts: Record<string, boolean>;
+  onPartToggle: (partKey: string, nextOpen: boolean) => void;
+}) {
   const nonTextParts = parts.filter((part) => part.type !== "text");
   if (nonTextParts.length === 0) {
     return null;
@@ -1706,15 +1794,31 @@ function MessageParts({ parts }: { parts: Array<Record<string, unknown>> }) {
     <div className="parts-list">
       {nonTextParts.map((part, index) => (
         <MessagePartCard
-          key={`${typeof part.type === "string" ? part.type : "part"}-${index}`}
+          key={buildPartInstanceKey(partScope, part, index)}
           part={part}
+          open={expandedParts[buildPartInstanceKey(partScope, part, index)] ?? false}
+          onToggle={(nextOpen) => onPartToggle(buildPartInstanceKey(partScope, part, index), nextOpen)}
         />
       ))}
     </div>
   );
 }
 
-function CollapsedMessageParts({ parts }: { parts: Array<Record<string, unknown>> }) {
+function CollapsedMessageParts({
+  parts,
+  groupOpen,
+  onGroupToggle,
+  partScope,
+  expandedParts,
+  onPartToggle,
+}: {
+  parts: Array<Record<string, unknown>>;
+  groupOpen: boolean;
+  onGroupToggle: (nextOpen: boolean) => void;
+  partScope: string;
+  expandedParts: Record<string, boolean>;
+  onPartToggle: (partKey: string, nextOpen: boolean) => void;
+}) {
   const nonTextParts = parts.filter((part) => part.type !== "text");
   if (nonTextParts.length === 0) {
     return null;
@@ -1723,12 +1827,21 @@ function CollapsedMessageParts({ parts }: { parts: Array<Record<string, unknown>
   const activitySummary = summarizeActivityParts(nonTextParts);
 
   return (
-    <details className="message-parts-collapsed">
+    <details
+      className="message-parts-collapsed"
+      open={groupOpen}
+      onToggle={(event) => onGroupToggle(event.currentTarget.open)}
+    >
       <summary>
         <span>Activity details</span>
         <small>{activitySummary.actionSummaries.join(" · ") || `${nonTextParts.length} actions`}</small>
       </summary>
-      <MessageParts parts={nonTextParts} />
+      <MessageParts
+        parts={nonTextParts}
+        partScope={partScope}
+        expandedParts={expandedParts}
+        onPartToggle={onPartToggle}
+      />
     </details>
   );
 }
@@ -1742,6 +1855,10 @@ function MessageBubble({
   showParts,
   collapseParts,
   onSpeak,
+  activityOpen,
+  onActivityToggle,
+  expandedParts,
+  onPartToggle,
 }: {
   message: ChatMessage;
   canSpeak: boolean;
@@ -1751,6 +1868,10 @@ function MessageBubble({
   showParts: boolean;
   collapseParts: boolean;
   onSpeak: (message: ChatMessage) => void;
+  activityOpen: boolean;
+  onActivityToggle: (nextOpen: boolean) => void;
+  expandedParts: Record<string, boolean>;
+  onPartToggle: (partKey: string, nextOpen: boolean) => void;
 }) {
   const own = message.role === "user";
   const timestamp = new Date(message.createdAt).toLocaleTimeString([], {
@@ -1772,7 +1893,25 @@ function MessageBubble({
           </button>
         ) : null}
         <RichMessageText text={message.text} />
-        {showParts ? (collapseParts ? <CollapsedMessageParts parts={message.parts} /> : <MessageParts parts={message.parts} />) : null}
+        {showParts ? (
+          collapseParts ? (
+            <CollapsedMessageParts
+              parts={message.parts}
+              groupOpen={activityOpen}
+              onGroupToggle={onActivityToggle}
+              partScope={`message:${message.id}:${message.createdAt}`}
+              expandedParts={expandedParts}
+              onPartToggle={onPartToggle}
+            />
+          ) : (
+            <MessageParts
+              parts={message.parts}
+              partScope={`message:${message.id}:${message.createdAt}`}
+              expandedParts={expandedParts}
+              onPartToggle={onPartToggle}
+            />
+          )
+        ) : null}
         <small>{timestamp}</small>
       </article>
     </div>
@@ -2717,6 +2856,20 @@ export function App() {
   const [commandPickerOpen, setCommandPickerOpen] = useState(false);
   const [commandSearch, setCommandSearch] = useState("");
   const [expandedActivityEntries, setExpandedActivityEntries] = useState<Record<string, boolean>>({});
+  const [expandedMessageEntries, setExpandedMessageEntries] = useState<Record<string, boolean>>({});
+  const [expandedPartEntries, setExpandedPartEntries] = useState<Record<string, boolean>>({});
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem(NOTIFICATION_PREFERENCE_KEY) === "true";
+  });
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      return "unsupported";
+    }
+    return Notification.permission;
+  });
   const [isChatNearBottom, setIsChatNearBottom] = useState(true);
   const [unreadEntryId, setUnreadEntryId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(
@@ -2760,6 +2913,11 @@ export function App() {
   const speakingAudioRef = useRef<HTMLAudioElement | null>(null);
   const speakingUrlRef = useRef<string | null>(null);
   const messageLoadRequestRef = useRef(0);
+  const messageRequestInFlightRef = useRef(false);
+  const pendingMessageRefreshRef = useRef<string | null>(null);
+  const pendingScrollAnchorRef = useRef<{ entryId: string; top: number } | null>(null);
+  const lastFinalAssistantMessageIdByChatRef = useRef<Record<string, string>>({});
+  const previousActivityEntriesRef = useRef<Array<{ id: string; childIds: string[] }>>([]);
   const taskLoadRequestRef = useRef(0);
   const sessionLoadRequestRef = useRef(0);
   const projectFilePreviewRequestRef = useRef(0);
@@ -2795,6 +2953,37 @@ export function App() {
     return isMobileViewport ? mobileProjectSearchInputRef.current : desktopProjectSearchInputRef.current;
   }
 
+  function captureVisibleTimelineAnchor() {
+    if (isChatNearBottom) {
+      pendingScrollAnchorRef.current = null;
+      return;
+    }
+
+    const body = chatBodyRef.current;
+    if (!body) {
+      pendingScrollAnchorRef.current = null;
+      return;
+    }
+
+    const bodyTop = body.getBoundingClientRect().top;
+    for (const entry of renderedTimelineEntries) {
+      const node = timelineEntryRefs.current[entry.id];
+      if (!node) {
+        continue;
+      }
+      const rect = node.getBoundingClientRect();
+      if (rect.bottom > bodyTop + 24) {
+        pendingScrollAnchorRef.current = {
+          entryId: entry.id,
+          top: rect.top - bodyTop,
+        };
+        return;
+      }
+    }
+
+    pendingScrollAnchorRef.current = null;
+  }
+
   function focusSchedulerCard() {
     if (debugPanelRef.current && !debugPanelRef.current.open) {
       debugPanelRef.current.open = true;
@@ -2813,6 +3002,37 @@ export function App() {
       schedulerCardPulseTimerRef.current = null;
       setSchedulerCardPulse(false);
     }, 1400);
+  }
+
+  async function requestBrowserNotificationPermission() {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      return;
+    }
+    if (Notification.permission !== "default") {
+      setNotificationPermission(Notification.permission);
+      return;
+    }
+    try {
+      const nextPermission = await Notification.requestPermission();
+      setNotificationPermission(nextPermission);
+    } catch {
+      // Ignore notification permission failures.
+    }
+  }
+
+  async function handleEnableNotifications() {
+    setNotificationsEnabled(true);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(NOTIFICATION_PREFERENCE_KEY, "true");
+    }
+    await requestBrowserNotificationPermission();
+  }
+
+  function handleDisableNotifications() {
+    setNotificationsEnabled(false);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(NOTIFICATION_PREFERENCE_KEY, "false");
+    }
   }
 
   function stopSpeakingAudio() {
@@ -3022,6 +3242,8 @@ export function App() {
       setActiveProjectId(nextActiveId);
       if (nextActiveId) {
         await loadMessages(nextActiveId);
+        void loadDiff(nextActiveId);
+        void loadPendingApprovals(nextActiveId);
       }
     } catch (error) {
       setProjectError(error instanceof Error ? error.message : "Unable to sync projects");
@@ -3047,6 +3269,8 @@ export function App() {
         const nextActiveProjectId = await refreshProjectsAndStatus();
         if (nextActiveProjectId) {
           await loadMessages(nextActiveProjectId);
+          void loadDiff(nextActiveProjectId);
+          void loadPendingApprovals(nextActiveProjectId);
           return;
         }
 
@@ -3058,6 +3282,8 @@ export function App() {
         setActiveProjectId(syncedActiveId);
         if (syncedActiveId) {
           await loadMessages(syncedActiveId);
+          void loadDiff(syncedActiveId);
+          void loadPendingApprovals(syncedActiveId);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to load app state";
@@ -3311,15 +3537,6 @@ export function App() {
     () => buildGroupedTimelineEntries(effectiveTimelineEntries),
     [effectiveTimelineEntries]
   );
-  const latestActivityEntryId = useMemo(() => {
-    for (let index = renderedTimelineEntries.length - 1; index >= 0; index -= 1) {
-      const entry = renderedTimelineEntries[index];
-      if (entry.kind === "activity") {
-        return entry.id;
-      }
-    }
-    return null;
-  }, [renderedTimelineEntries]);
 
   const searchQuery = projectSearch.trim();
   const isSearchMode = searchQuery.length > 0;
@@ -3424,27 +3641,76 @@ export function App() {
   }, [aborting, activeProject?.sessionStatus, fixtureMode, hasStreamingActivity, runIntentActive, sending, streamStatus]);
 
   useEffect(() => {
-    setExpandedActivityEntries((current) => {
-      if (Object.keys(current).length === 0) {
-        return current;
-      }
-      const activeIds = new Set(
-        renderedTimelineEntries
-          .filter((entry) => entry.kind === "activity")
-          .map((entry) => entry.id)
-      );
-      const next: Record<string, boolean> = {};
-      let changed = false;
+    if (!activeChatKey) {
+      setExpandedActivityEntries({});
+      setExpandedMessageEntries({});
+      setExpandedPartEntries({});
+      previousActivityEntriesRef.current = [];
+      return;
+    }
 
-      for (const [entryId, isOpen] of Object.entries(current)) {
-        if (activeIds.has(entryId)) {
-          next[entryId] = isOpen;
-        } else {
-          changed = true;
+    setExpandedActivityEntries({});
+    setExpandedMessageEntries({});
+    setExpandedPartEntries({});
+    previousActivityEntriesRef.current = [];
+  }, [activeChatKey]);
+
+  useEffect(() => {
+    const activityEntries = renderedTimelineEntries.filter(
+      (entry): entry is Extract<RenderedTimelineEntry, { kind: "activity" }> => entry.kind === "activity"
+    );
+    const activeActivityIds = new Set(activityEntries.map((entry) => entry.id));
+    const activeMessageIds = new Set(
+      renderedTimelineEntries
+        .filter((entry) => entry.kind === "message")
+        .map((entry) => `${entry.message.id}:${entry.message.createdAt}`)
+    );
+    const activePartKeys = new Set(
+      renderedTimelineEntries.flatMap((entry) => {
+        if (entry.kind === "activity") {
+          return entry.partItems.map((item) => item.key);
+        }
+        if (entry.kind === "message") {
+          return getNonTextParts(entry.message).map((part, index) =>
+            buildPartInstanceKey(`message:${entry.message.id}:${entry.message.createdAt}`, part, index)
+          );
+        }
+        return [];
+      })
+    );
+
+    setExpandedActivityEntries((current) => {
+      const next: Record<string, boolean> = {};
+      for (const entry of activityEntries) {
+        if (entry.id in current) {
+          next[entry.id] = current[entry.id];
+          continue;
+        }
+
+        const previousMatch = previousActivityEntriesRef.current.find((item) =>
+          item.childIds.some((childId) => entry.childIds.includes(childId))
+        );
+        if (previousMatch && previousMatch.id in current) {
+          next[entry.id] = current[previousMatch.id];
         }
       }
-
-      return changed ? next : current;
+      previousActivityEntriesRef.current = activityEntries.map((entry) => ({
+        id: entry.id,
+        childIds: entry.childIds,
+      }));
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
+    });
+    setExpandedMessageEntries((current) => {
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([entryId]) => activeMessageIds.has(entryId))
+      );
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
+    });
+    setExpandedPartEntries((current) => {
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([entryId]) => activePartKeys.has(entryId))
+      );
+      return Object.keys(next).length === Object.keys(current).length ? current : next;
     });
   }, [renderedTimelineEntries]);
 
@@ -3647,16 +3913,20 @@ export function App() {
     };
   }, [isAuthenticated, visibleProjects, highlightedProjectId]);
 
-  async function loadMessages(projectId: string) {
+  async function loadMessages(
+    projectId: string,
+    options?: { silent?: boolean }
+  ) {
     const requestId = messageLoadRequestRef.current + 1;
     messageLoadRequestRef.current = requestId;
-    setMessagesLoading(true);
+    messageRequestInFlightRef.current = true;
+    captureVisibleTimelineAnchor();
+    if (!options?.silent) {
+      setMessagesLoading(true);
+    }
     setProjectError(null);
     try {
-      const [messageResult, diffResult] = await Promise.all([
-        fetchMessages(projectId),
-        fetchDiff(projectId),
-      ]);
+      const messageResult = await fetchMessages(projectId);
       if (requestId !== messageLoadRequestRef.current) {
         return;
       }
@@ -3664,7 +3934,6 @@ export function App() {
       updateProjectSessionSelection(projectId, messageResult.sessionId);
       setMessages(messageResult.messages);
       setTaskTimelineEvents(messageResult.timelineEvents ?? []);
-      setDiffEntries(diffResult.diff);
     } catch (error) {
       if (requestId !== messageLoadRequestRef.current) {
         return;
@@ -3672,11 +3941,36 @@ export function App() {
       setProjectError(error instanceof Error ? error.message : "Failed to load messages");
       setMessages([]);
       setTaskTimelineEvents([]);
-      setDiffEntries([]);
     } finally {
-      if (requestId === messageLoadRequestRef.current) {
-        setMessagesLoading(false);
+      messageRequestInFlightRef.current = false;
+      const pendingProjectId = pendingMessageRefreshRef.current;
+      if (pendingProjectId && pendingProjectId === projectId) {
+        pendingMessageRefreshRef.current = null;
+        void loadMessages(projectId, { silent: true });
       }
+      if (requestId === messageLoadRequestRef.current) {
+        if (!options?.silent) {
+          setMessagesLoading(false);
+        }
+      }
+    }
+  }
+
+  async function loadDiff(projectId: string) {
+    try {
+      const diffResult = await fetchDiff(projectId);
+      setDiffEntries(diffResult.diff);
+    } catch {
+      setDiffEntries([]);
+    }
+  }
+
+  async function loadPendingApprovals(projectId: string) {
+    try {
+      const result = await fetchPendingApprovals(projectId);
+      setPendingApprovals(result.approvals);
+    } catch {
+      setPendingApprovals([]);
     }
   }
 
@@ -3982,10 +4276,13 @@ export function App() {
     }
 
     refreshDebounceRef.current = window.setTimeout(() => {
-      void loadMessages(projectId);
-      void refreshProjectsAndStatus(projectId);
+      if (messageRequestInFlightRef.current) {
+        pendingMessageRefreshRef.current = projectId;
+      } else {
+        void loadMessages(projectId, { silent: true });
+      }
       refreshDebounceRef.current = null;
-    }, 350);
+    }, 700);
   }
 
   useEffect(() => {
@@ -4255,6 +4552,66 @@ export function App() {
     pendingOpenScrollRef.current = null;
   }, [activeChatKey, timelineEntries]);
 
+  useLayoutEffect(() => {
+    const pendingAnchor = pendingScrollAnchorRef.current;
+    if (!pendingAnchor || isChatNearBottom) {
+      return;
+    }
+
+    const body = chatBodyRef.current;
+    const entry = timelineEntryRefs.current[pendingAnchor.entryId];
+    if (!body || !entry) {
+      pendingScrollAnchorRef.current = null;
+      return;
+    }
+
+    const bodyTop = body.getBoundingClientRect().top;
+    const nextTop = entry.getBoundingClientRect().top - bodyTop;
+    body.scrollTop += nextTop - pendingAnchor.top;
+    pendingScrollAnchorRef.current = null;
+  }, [isChatNearBottom, renderedTimelineEntries]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!activeChatKey || typeof document === "undefined") {
+      return;
+    }
+
+    const latestFinalAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant" && message.text.trim());
+    if (!latestFinalAssistantMessage) {
+      return;
+    }
+
+    const previousMessageId = lastFinalAssistantMessageIdByChatRef.current[activeChatKey] ?? null;
+    const shouldNotify =
+      notificationsEnabled &&
+      document.hidden &&
+      previousMessageId !== latestFinalAssistantMessage.id &&
+      typeof window !== "undefined" &&
+      "Notification" in window &&
+      Notification.permission === "granted";
+
+    if (shouldNotify) {
+      const notification = new Notification(activeProject?.name || "Agent reply", {
+        body: latestFinalAssistantMessage.text.trim().slice(0, 180),
+        tag: `${activeChatKey}:${latestFinalAssistantMessage.id}`,
+      });
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+    }
+
+    lastFinalAssistantMessageIdByChatRef.current[activeChatKey] = latestFinalAssistantMessage.id;
+  }, [activeChatKey, activeProject?.name, messages, notificationsEnabled]);
+
   useEffect(() => {
     if (!activeProjectId || messages.length === 0) {
       return;
@@ -4408,7 +4765,8 @@ export function App() {
     setMessages([]);
     setTaskTimelineEvents([]);
     setDiffEntries([]);
-    await loadMessages(projectId);
+    await Promise.all([loadMessages(projectId), loadPendingApprovals(projectId)]);
+    void loadDiff(projectId);
   }
 
   async function ensureBaseProjectLoaded(projectId: string) {
@@ -4469,7 +4827,12 @@ export function App() {
       setActiveSessionId(result.activeSessionId);
       updateProjectSessionSelection(activeProjectId, result.activeSessionId);
       setPendingApprovals([]);
-      await Promise.all([loadProjectSessions(activeProjectId), loadMessages(activeProjectId)]);
+      await Promise.all([
+        loadProjectSessions(activeProjectId),
+        loadMessages(activeProjectId),
+        loadPendingApprovals(activeProjectId),
+      ]);
+      void loadDiff(activeProjectId);
     } catch (error) {
       setSessionError(error instanceof Error ? error.message : "Failed to switch session");
     } finally {
@@ -4499,7 +4862,12 @@ export function App() {
       setMessages([]);
       setTaskTimelineEvents([]);
       setDiffEntries([]);
-      await Promise.all([loadProjectSessions(activeProjectId), loadMessages(activeProjectId)]);
+      await Promise.all([
+        loadProjectSessions(activeProjectId),
+        loadMessages(activeProjectId),
+        loadPendingApprovals(activeProjectId),
+      ]);
+      void loadDiff(activeProjectId);
     } catch (error) {
       setSessionError(error instanceof Error ? error.message : "Failed to create session");
     } finally {
@@ -4550,12 +4918,20 @@ export function App() {
         setActiveProjectId(result.activeProjectId ?? null);
         const nextProjectId = await refreshProjectsAndStatus(result.activeProjectId ?? null);
         if (nextProjectId) {
-          await loadMessages(nextProjectId);
+          await Promise.all([
+            loadMessages(nextProjectId),
+            loadPendingApprovals(nextProjectId),
+          ]);
+          void loadDiff(nextProjectId);
         }
         return;
       }
       if (result.activeSessionId) {
-        await loadMessages(activeProjectId);
+        await Promise.all([
+          loadMessages(activeProjectId),
+          loadPendingApprovals(activeProjectId),
+        ]);
+        void loadDiff(activeProjectId);
       }
     } catch (error) {
       setSessionError(error instanceof Error ? error.message : "Failed to delete session");
@@ -4705,6 +5081,9 @@ export function App() {
     setSending(true);
     setRunIntentActive(true);
     setProjectError(null);
+    if (notificationsEnabled) {
+      void requestBrowserNotificationPermission();
+    }
 
     const userEcho: ChatMessage = {
       id: `local-${Date.now()}`,
@@ -4726,7 +5105,11 @@ export function App() {
 
       setMessages((current) => [...current, result.message]);
       await refreshProjectsAndStatus(activeProjectId);
-      await loadMessages(activeProjectId);
+      await Promise.all([
+        loadMessages(activeProjectId),
+        loadPendingApprovals(activeProjectId),
+      ]);
+      void loadDiff(activeProjectId);
     } catch (error) {
       setProjectError(error instanceof Error ? error.message : "Failed to send message");
       setMessages((current) => current.filter((message) => message.id !== userEcho.id));
@@ -4754,7 +5137,11 @@ export function App() {
       setStopFeedbackLabel("Stop requested. Waiting for final session update...");
       setStopFeedbackUntilMs(Date.now() + 4_000);
       addTelemetryMarker("chat.abort.manual", { projectId: activeProjectId });
-      await loadMessages(activeProjectId);
+      await Promise.all([
+        loadMessages(activeProjectId),
+        loadPendingApprovals(activeProjectId),
+      ]);
+      void loadDiff(activeProjectId);
       await refreshProjectsAndStatus(activeProjectId);
     } catch (error) {
       setProjectError(error instanceof Error ? error.message : "Failed to abort generation");
@@ -5395,6 +5782,18 @@ export function App() {
                 </div>
 
                 <div className="toolbar-card commands-card">
+                  <NotificationControls
+                    supported={notificationPermission !== "unsupported"}
+                    enabled={notificationsEnabled}
+                    permission={notificationPermission}
+                    onEnable={() => {
+                      void handleEnableNotifications();
+                    }}
+                    onDisable={handleDisableNotifications}
+                  />
+                </div>
+
+                <div className="toolbar-card commands-card">
                   <CommandHelpBar
                     commands={availableCommands}
                     onInsert={handleInsertCommand}
@@ -5558,19 +5957,41 @@ export function App() {
                         showParts={entry.message.role !== "assistant" || !entry.message.text.trim()}
                         collapseParts={entry.message.role === "assistant" && Boolean(entry.message.text.trim())}
                         onSpeak={handleSpeakMessage}
+                        activityOpen={expandedMessageEntries[`${entry.message.id}:${entry.message.createdAt}`] ?? false}
+                        onActivityToggle={(nextOpen) => {
+                          const messageKey = `${entry.message.id}:${entry.message.createdAt}`;
+                          setExpandedMessageEntries((current) => ({
+                            ...current,
+                            [messageKey]: nextOpen,
+                          }));
+                        }}
+                        expandedParts={expandedPartEntries}
+                        onPartToggle={(partKey, nextOpen) => {
+                          setExpandedPartEntries((current) => ({
+                            ...current,
+                            [partKey]: nextOpen,
+                          }));
+                        }}
                       />
                       ) : entry.kind === "activity" ? (
                         <AgentActivityCard
-                          parts={entry.parts}
+                          partItems={entry.partItems}
                           latestLabel={entry.latestLabel}
                           latestDetail={entry.latestDetail}
                           actionSummaries={entry.actionSummaries}
                           createdAt={entry.createdAt}
-                          open={expandedActivityEntries[entry.id] ?? entry.id === latestActivityEntryId}
+                          open={expandedActivityEntries[entry.id] ?? false}
                           onToggle={(nextOpen) => {
                             setExpandedActivityEntries((current) => ({
                               ...current,
                               [entry.id]: nextOpen,
+                            }));
+                          }}
+                          expandedParts={expandedPartEntries}
+                          onPartToggle={(partKey, nextOpen) => {
+                            setExpandedPartEntries((current) => ({
+                              ...current,
+                              [partKey]: nextOpen,
                             }));
                           }}
                         />
@@ -5693,6 +6114,17 @@ export function App() {
                   onDelete={() => {
                     void handleDeleteSession();
                   }}
+                />
+              </div>
+              <div className="toolbar-card commands-card">
+                <NotificationControls
+                  supported={notificationPermission !== "unsupported"}
+                  enabled={notificationsEnabled}
+                  permission={notificationPermission}
+                  onEnable={() => {
+                    void handleEnableNotifications();
+                  }}
+                  onDisable={handleDisableNotifications}
                 />
               </div>
               <div className="toolbar-card commands-card">
