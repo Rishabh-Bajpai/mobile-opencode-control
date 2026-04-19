@@ -64,6 +64,14 @@ export async function fetchAppState(): Promise<AppStateResponse> {
   return request<AppStateResponse>("/api/state");
 }
 
+export async function fetchLanUrl(): Promise<{ url: string | null; port: number; ip: string | null }> {
+  const response = await fetch("/api/lan-url");
+  if (!response.ok) {
+    throw new Error(`LAN URL fetch failed (${response.status})`);
+  }
+  return response.json() as Promise<{ url: string | null; port: number; ip: string | null }>;
+}
+
 export async function fetchProjects(input?: {
   limit?: number;
   offset?: number;

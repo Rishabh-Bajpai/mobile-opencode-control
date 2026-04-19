@@ -8,6 +8,7 @@ import {
   deleteScheduledTask,
   fetchDiff,
   fetchAppState,
+  fetchLanUrl,
   fetchMessages,
   fetchOpenCodeCommands,
   fetchProjectRuntime,
@@ -2622,6 +2623,7 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [lanUrl, setLanUrl] = useState<string | null>(null);
 
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectRootPath, setNewProjectRootPath] = useState("");
@@ -3046,6 +3048,10 @@ export function App() {
       setSyncingProjects(false);
     }
   }
+
+  useEffect(() => {
+    fetchLanUrl().then((data) => setLanUrl(data.url)).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -3482,13 +3488,19 @@ export function App() {
       if (!resizingSidebarRef.current || !shellRef.current || isMobileViewport) {
         return;
       }
+      if (event.buttons !== 1) {
+        resizingSidebarRef.current = false;
+        return;
+      }
 
       const rect = shellRef.current.getBoundingClientRect();
       const minSidebarWidth = 300;
       const minChatWidth = 420;
-      const maxSidebarWidth = Math.max(minSidebarWidth, Math.min(680, rect.width - minChatWidth - 8));
+      const availableSidebarWidth = Math.max(0, rect.width - minChatWidth - 8);
+      const effectiveMinSidebarWidth = Math.min(minSidebarWidth, availableSidebarWidth);
+      const maxSidebarWidth = Math.max(effectiveMinSidebarWidth, Math.min(680, availableSidebarWidth));
       const nextWidth = event.clientX - rect.left;
-      const clampedWidth = Math.min(maxSidebarWidth, Math.max(minSidebarWidth, nextWidth));
+      const clampedWidth = Math.min(maxSidebarWidth, Math.max(effectiveMinSidebarWidth, nextWidth));
       setDesktopSidebarWidth(clampedWidth);
     };
 
@@ -3496,25 +3508,50 @@ export function App() {
       resizingSidebarRef.current = false;
     };
 
+    const handlePointerCancel = () => {
+      resizingSidebarRef.current = false;
+    };
+
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
     };
   }, [isMobileViewport]);
 
   useEffect(() => {
-    if (!shellRef.current || isMobileViewport) {
+    const shellElement = shellRef.current;
+    if (!shellElement || isMobileViewport) {
       return;
     }
 
-    const rect = shellRef.current.getBoundingClientRect();
-    const minSidebarWidth = 300;
-    const minChatWidth = 420;
-    const maxSidebarWidth = Math.max(minSidebarWidth, Math.min(680, rect.width - minChatWidth - 8));
+    const clampDesktopSidebarWidth = () => {
+      const rect = shellElement.getBoundingClientRect();
+      const minSidebarWidth = 300;
+      const minChatWidth = 420;
+      const availableSidebarWidth = Math.max(0, rect.width - minChatWidth - 8);
+      const effectiveMinSidebarWidth = Math.min(minSidebarWidth, availableSidebarWidth);
+      const maxSidebarWidth = Math.max(effectiveMinSidebarWidth, Math.min(680, availableSidebarWidth));
+      setDesktopSidebarWidth((current) => Math.min(maxSidebarWidth, Math.max(effectiveMinSidebarWidth, current)));
+    };
 
-    setDesktopSidebarWidth((current) => Math.min(maxSidebarWidth, Math.max(minSidebarWidth, current)));
+    clampDesktopSidebarWidth();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const resizeObserver = new ResizeObserver(clampDesktopSidebarWidth);
+      resizeObserver.observe(shellElement);
+      return () => {
+        resizeObserver.disconnect();
+      };
+    }
+
+    window.addEventListener("resize", clampDesktopSidebarWidth);
+    return () => {
+      window.removeEventListener("resize", clampDesktopSidebarWidth);
+    };
   }, [isMobileViewport, visibleProjects.length]);
 
   useEffect(() => {
@@ -5327,13 +5364,23 @@ export function App() {
 
         <div className="sidebar-phone-link">
           <span>📱 Open on phone:</span>
-          <a
-            href={`http://${window.location.hostname}:${window.location.port || 5173}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {window.location.hostname}:{window.location.port || 5173}
-          </a>
+          {lanUrl ? (
+            <a
+              href={lanUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {lanUrl.replace(/^https?:\/\//, "")}
+            </a>
+          ) : (
+            <a
+              href={window.location.origin}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {window.location.host}
+            </a>
+          )}
         </div>
       </aside>
 
@@ -5343,7 +5390,14 @@ export function App() {
         aria-orientation="vertical"
         aria-label="Resize projects sidebar"
         aria-valuemin={300}
-        aria-valuemax={680}
+        aria-valuemax={(() => {
+          const minSidebarWidth = 300;
+          const minChatWidth = 420;
+          const shellWidth = shellRef.current?.getBoundingClientRect().width;
+          return shellWidth == null
+            ? 680
+            : Math.max(minSidebarWidth, Math.min(680, shellWidth - minChatWidth - 8));
+        })()}
         aria-valuenow={Math.round(desktopSidebarWidth)}
         tabIndex={isMobileViewport ? -1 : 0}
         onPointerDown={(event) => {
@@ -5367,18 +5421,20 @@ export function App() {
           const rect = shellRef.current.getBoundingClientRect();
           const minSidebarWidth = 300;
           const minChatWidth = 420;
-          const maxSidebarWidth = Math.max(minSidebarWidth, Math.min(680, rect.width - minChatWidth - 8));
+          const availableSidebarWidth = Math.max(0, rect.width - minChatWidth - 8);
+          const effectiveMinSidebarWidth = Math.min(minSidebarWidth, availableSidebarWidth);
+          const maxSidebarWidth = Math.max(effectiveMinSidebarWidth, Math.min(680, availableSidebarWidth));
 
           setDesktopSidebarWidth((current) => {
             if (event.key === "Home") {
-              return minSidebarWidth;
+              return effectiveMinSidebarWidth;
             }
             if (event.key === "End") {
               return maxSidebarWidth;
             }
 
             const delta = event.key === "ArrowRight" ? 24 : -24;
-            return Math.min(maxSidebarWidth, Math.max(minSidebarWidth, current + delta));
+            return Math.min(maxSidebarWidth, Math.max(effectiveMinSidebarWidth, current + delta));
           });
         }}
       />

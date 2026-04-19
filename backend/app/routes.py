@@ -1,6 +1,7 @@
 import os
 import json
 import mimetypes
+import socket
 import tempfile
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -544,6 +545,24 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
                 "env": settings.app_env,
             }
         )
+
+    @app.get("/api/lan-url")
+    def app_lan_url():
+        frontend_port = settings.frontend_port
+        lan_ip: str | None = None
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.connect(("8.8.8.8", 80))
+                lan_ip = sock.getsockname()[0]
+        except OSError:
+            lan_ip = None
+
+        if lan_ip and lan_ip not in ("127.0.0.1", "::1"):
+            url = f"http://{lan_ip}:{frontend_port}"
+        else:
+            url = None
+
+        return jsonify({"url": url, "port": frontend_port, "ip": lan_ip})
 
     @app.get("/api/opencode/health")
     @auth_required
