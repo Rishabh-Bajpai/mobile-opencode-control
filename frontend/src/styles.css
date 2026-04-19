@@ -1635,7 +1635,7 @@ input {
   line-height: 1.35;
 }
 
-.command-help-bar summary {
+.command-help-toggle {
   cursor: pointer;
   padding: 0;
   font-size: 0.83rem;
@@ -1644,9 +1644,13 @@ input {
   display: flex;
   align-items: center;
   gap: 0.45rem;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
 }
 
-.command-help-bar summary span {
+.command-help-toggle span {
   border: 1px solid rgba(95, 168, 255, 0.2);
   border-radius: 999px;
   padding: 0.05rem 0.4rem;
@@ -2943,10 +2947,12 @@ input {
     display: none;
     position: fixed;
     inset: 0;
+    height: 100dvh;
     z-index: 45;
     grid-template-rows: auto minmax(0, 1fr);
     background: linear-gradient(180deg, #17212b 0%, #121b25 100%);
     padding-top: env(safe-area-inset-top);
+    overflow: hidden;
   }
 
   .mobile-settings-screen.open {
@@ -2977,10 +2983,13 @@ input {
   }
 
   .mobile-settings-screen-body {
+    min-height: 0;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
     padding: 0.8rem 0.7rem calc(0.8rem + env(safe-area-inset-bottom));
     display: grid;
     gap: 0.7rem;
+    align-content: start;
   }
 
   .mobile-settings-screen .toolbar-card,

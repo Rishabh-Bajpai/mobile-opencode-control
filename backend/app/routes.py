@@ -402,11 +402,19 @@ def _message_to_dict(message: dict) -> dict:
     if not isinstance(parts, list):
         parts = []
 
+    time_info = info.get("time") if isinstance(info, dict) and isinstance(info.get("time"), dict) else {}
+    message_time = message.get("time") if isinstance(message.get("time"), dict) else {}
+    created_at = (
+        _datetime_from_epoch_ms(time_info.get("created"))
+        or _datetime_from_epoch_ms(message_time.get("created"))
+    )
     text = _extract_text(parts)
     return {
         "id": str((info or {}).get("id") or ""),
         "role": (info or {}).get("role") or "assistant",
-        "createdAt": (info or {}).get("createdAt") or _utc_now().isoformat(),
+        "createdAt": (info or {}).get("createdAt")
+        or (created_at.isoformat() if created_at else None)
+        or _utc_now().isoformat(),
         "text": text,
         "parts": parts,
     }

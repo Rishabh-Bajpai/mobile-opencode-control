@@ -324,34 +324,39 @@ function CommandHelpBar({
   }
 
   return (
-    <details
-      className="command-help-bar"
-      open={isOpen}
-      onToggle={(event) => setIsOpen(event.currentTarget.open)}
-    >
-      <summary>
+    <div className={`command-help-bar ${isOpen ? "open" : ""}`}>
+      <button
+        type="button"
+        className="command-help-toggle"
+        onClick={() => setIsOpen((current) => !current)}
+        aria-expanded={isOpen}
+      >
         Commands
         <span>{commands.length}</span>
-      </summary>
-      <div className="command-help-actions">
-        <button type="button" className="command-picker-button" onClick={onOpenPicker}>
-          Browse commands
-        </button>
-      </div>
-      <div className="command-chip-list">
-        {commands.slice(0, 12).map((command) => (
-          <button
-            key={command.name}
-            type="button"
-            className="command-chip"
-            title={command.description || `Insert /${command.name}`}
-            onClick={() => onInsert(command.name)}
-          >
-            /{command.name}
-          </button>
-        ))}
-      </div>
-    </details>
+      </button>
+      {isOpen ? (
+        <>
+          <div className="command-help-actions">
+            <button type="button" className="command-picker-button" onClick={onOpenPicker}>
+              Browse commands
+            </button>
+          </div>
+          <div className="command-chip-list">
+            {commands.slice(0, 12).map((command) => (
+              <button
+                key={command.name}
+                type="button"
+                className="command-chip"
+                title={command.description || `Insert /${command.name}`}
+                onClick={() => onInsert(command.name)}
+              >
+                /{command.name}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
   );
 }
 
@@ -518,21 +523,8 @@ function buildPartInstanceKey(scope: string, part: Record<string, unknown>, inde
   return `${scope}:${index}:${type}`;
 }
 
-function areBooleanMapsEqual(
-  left: Record<string, boolean>,
-  right: Record<string, boolean>
-) {
-  const leftKeys = Object.keys(left);
-  const rightKeys = Object.keys(right);
-  if (leftKeys.length !== rightKeys.length) {
-    return false;
-  }
-  for (const key of leftKeys) {
-    if (!(key in right) || left[key] !== right[key]) {
-      return false;
-    }
-  }
-  return true;
+function buildMessageStableKey(message: ChatMessage) {
+  return message.id || `${message.role}:${message.createdAt}`;
 }
 
 function compactPathLabel(value: string) {
@@ -1247,7 +1239,7 @@ function buildGroupedTimelineEntries(entries: TimelineEntry[]): RenderedTimeline
     }
     const partItems = pendingMessages.flatMap((message) =>
       getNonTextParts(message).map((part, index) => ({
-        key: buildPartInstanceKey(`activity:${message.id}:${message.createdAt}`, part, index),
+        key: buildPartInstanceKey(`activity:${buildMessageStableKey(message)}`, part, index),
         part,
       }))
     );
@@ -1256,11 +1248,11 @@ function buildGroupedTimelineEntries(entries: TimelineEntry[]): RenderedTimeline
     const firstMessage = pendingMessages[0];
     next.push({
       kind: "activity",
-      id: `a-${firstMessage.id}-${firstMessage.createdAt}`,
-      stateKey: `activity:${firstMessage.id}:${firstMessage.createdAt}`,
+      id: `a-${buildMessageStableKey(firstMessage)}`,
+      stateKey: `activity:${buildMessageStableKey(firstMessage)}`,
       createdAt: firstMessage.createdAt,
       messages: pendingMessages,
-      childIds: pendingMessages.map((message) => `m-${message.id}-${message.createdAt}`),
+      childIds: pendingMessages.map((message) => `m-${buildMessageStableKey(message)}`),
       partItems,
       latestLabel: activitySummary.latestLabel,
       latestDetail: activitySummary.latestDetail,
@@ -1927,14 +1919,14 @@ function MessageBubble({
               parts={message.parts}
               groupOpen={activityOpen}
               onGroupToggle={onActivityToggle}
-              partScope={`message:${message.id}:${message.createdAt}`}
+              partScope={`message:${buildMessageStableKey(message)}`}
               expandedParts={expandedParts}
               onPartToggle={onPartToggle}
             />
           ) : (
             <MessageParts
               parts={message.parts}
-              partScope={`message:${message.id}:${message.createdAt}`}
+              partScope={`message:${buildMessageStableKey(message)}`}
               expandedParts={expandedParts}
               onPartToggle={onPartToggle}
             />
@@ -2945,6 +2937,7 @@ export function App() {
   const pendingMessageRefreshRef = useRef<string | null>(null);
   const pendingScrollAnchorRef = useRef<{ entryId: string; top: number } | null>(null);
   const lastFinalAssistantMessageIdByChatRef = useRef<Record<string, string>>({});
+  const previousActivityEntriesRef = useRef<Array<{ stateKey: string; childIds: string[] }>>([]);
   const taskLoadRequestRef = useRef(0);
   const sessionLoadRequestRef = useRef(0);
   const projectFilePreviewRequestRef = useRef(0);
@@ -3015,6 +3008,7 @@ export function App() {
     setExpandedActivityEntries({});
     setExpandedMessageEntries({});
     setExpandedPartEntries({});
+    previousActivityEntriesRef.current = [];
   }
 
   function focusSchedulerCard() {
@@ -3446,7 +3440,7 @@ export function App() {
   const timelineEntries = useMemo<TimelineEntry[]>(() => {
     const messageEntries: TimelineEntry[] = messages.map((message) => ({
       kind: "message",
-      id: `m-${message.id}-${message.createdAt}`,
+      id: `m-${buildMessageStableKey(message)}`,
       createdAt: message.createdAt,
       message,
     }));
@@ -3677,43 +3671,45 @@ export function App() {
     const activityEntries = renderedTimelineEntries.filter(
       (entry): entry is Extract<RenderedTimelineEntry, { kind: "activity" }> => entry.kind === "activity"
     );
-    const activeActivityIds = new Set(activityEntries.map((entry) => entry.stateKey));
-    const activeMessageIds = new Set(
-      renderedTimelineEntries
-        .filter((entry) => entry.kind === "message")
-        .map((entry) => `${entry.message.id}:${entry.message.createdAt}`)
-    );
-    const activePartKeys = new Set(
-      renderedTimelineEntries.flatMap((entry) => {
-        if (entry.kind === "activity") {
-          return entry.partItems.map((item) => item.key);
-        }
-        if (entry.kind === "message") {
-          return getNonTextParts(entry.message).map((part, index) =>
-            buildPartInstanceKey(`message:${entry.message.id}:${entry.message.createdAt}`, part, index)
-          );
-        }
-        return [];
-      })
-    );
+    if (activityEntries.length === 0) {
+      previousActivityEntriesRef.current = [];
+      return;
+    }
 
     setExpandedActivityEntries((current) => {
-      const next = Object.fromEntries(
-        Object.entries(current).filter(([entryId]) => activeActivityIds.has(entryId))
-      );
-      return areBooleanMapsEqual(current, next) ? current : next;
-    });
-    setExpandedMessageEntries((current) => {
-      const next = Object.fromEntries(
-        Object.entries(current).filter(([entryId]) => activeMessageIds.has(entryId))
-      );
-      return areBooleanMapsEqual(current, next) ? current : next;
-    });
-    setExpandedPartEntries((current) => {
-      const next = Object.fromEntries(
-        Object.entries(current).filter(([entryId]) => activePartKeys.has(entryId))
-      );
-      return areBooleanMapsEqual(current, next) ? current : next;
+      const next: Record<string, boolean> = {};
+      const previousEntries = previousActivityEntriesRef.current;
+      const previousLastEntry = previousEntries[previousEntries.length - 1] ?? null;
+
+      activityEntries.forEach((entry, index) => {
+        if (entry.stateKey in current) {
+          next[entry.stateKey] = current[entry.stateKey];
+          return;
+        }
+
+        const overlappingPreviousEntry = previousEntries.find((previousEntry) =>
+          previousEntry.childIds.some((childId) => entry.childIds.includes(childId))
+        );
+        if (overlappingPreviousEntry && overlappingPreviousEntry.stateKey in current) {
+          next[entry.stateKey] = current[overlappingPreviousEntry.stateKey];
+          return;
+        }
+
+        const isLastActivity = index === activityEntries.length - 1;
+        if (
+          isLastActivity &&
+          previousLastEntry &&
+          previousLastEntry.stateKey in current
+        ) {
+          next[entry.stateKey] = current[previousLastEntry.stateKey];
+        }
+      });
+
+      previousActivityEntriesRef.current = activityEntries.map((entry) => ({
+        stateKey: entry.stateKey,
+        childIds: entry.childIds,
+      }));
+      return next;
     });
   }, [renderedTimelineEntries]);
 
@@ -5797,7 +5793,7 @@ export function App() {
                   />
                 </div>
 
-                <div className="toolbar-card commands-card">
+                <div className="toolbar-card notifications-card">
                   <NotificationControls
                     supported={notificationPermission !== "unsupported"}
                     enabled={notificationsEnabled}
@@ -5973,9 +5969,9 @@ export function App() {
                         showParts={entry.message.role !== "assistant" || !entry.message.text.trim()}
                         collapseParts={entry.message.role === "assistant" && Boolean(entry.message.text.trim())}
                         onSpeak={handleSpeakMessage}
-                        activityOpen={expandedMessageEntries[`${entry.message.id}:${entry.message.createdAt}`] ?? false}
+                        activityOpen={expandedMessageEntries[buildMessageStableKey(entry.message)] ?? false}
                         onActivityToggle={(nextOpen) => {
-                          const messageKey = `${entry.message.id}:${entry.message.createdAt}`;
+                          const messageKey = buildMessageStableKey(entry.message);
                           setExpandedMessageEntries((current) => ({
                             ...current,
                             [messageKey]: nextOpen,
@@ -6133,7 +6129,7 @@ export function App() {
                   }}
                 />
               </div>
-              <div className="toolbar-card commands-card">
+              <div className="toolbar-card notifications-card">
                 <NotificationControls
                   supported={notificationPermission !== "unsupported"}
                   enabled={notificationsEnabled}
