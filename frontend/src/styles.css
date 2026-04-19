@@ -110,7 +110,7 @@ input {
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  grid-template-columns: 390px 8px minmax(0, 1fr);
   background: var(--bg-app);
   overflow: hidden;
 }
@@ -119,11 +119,31 @@ input {
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-width: 256px;
   min-height: 0;
   overflow: hidden;
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.03);
+}
+
+.sidebar-phone-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.sidebar-phone-link a {
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.sidebar-phone-link a:hover {
+  text-decoration: underline;
 }
 
 .sidebar-top {
@@ -159,6 +179,34 @@ input {
 .search-status-line {
   color: var(--text-muted);
   font-size: 0.76rem;
+}
+
+.sidebar-resizer {
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  background: linear-gradient(
+    90deg,
+    rgba(95, 168, 255, 0.04),
+    rgba(95, 168, 255, 0.28),
+    rgba(95, 168, 255, 0.04)
+  );
+  transition: background 140ms ease;
+}
+
+.sidebar-resizer:hover,
+.sidebar-resizer:focus-visible {
+  background: linear-gradient(
+    90deg,
+    rgba(95, 168, 255, 0.08),
+    rgba(95, 168, 255, 0.46),
+    rgba(95, 168, 255, 0.08)
+  );
+}
+
+.sidebar-resizer:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .search-clear-button {
@@ -577,11 +625,25 @@ input {
 }
 
 .project-row strong,
-.project-row small,
-.project-row span {
+.project-row small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+}
+
+.project-row strong {
+  flex: 1 1 auto;
+}
+
+.project-row span,
+.project-row.secondary small:last-child {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.project-row span {
+  overflow: visible;
 }
 
 .project-row.secondary {
@@ -589,7 +651,7 @@ input {
 }
 
 .project-row.secondary small:first-child {
-  max-width: 16rem;
+  flex: 1 1 auto;
 }
 
 .chat-pane {
@@ -2323,6 +2385,7 @@ input {
     position: relative;
   }
 
+  .sidebar-resizer,
   .sidebar,
   .chat-toolbar,
   .chat-header-controls .status {

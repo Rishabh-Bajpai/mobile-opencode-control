@@ -8,6 +8,7 @@ import {
   deleteScheduledTask,
   fetchDiff,
   fetchAppState,
+  fetchLanUrl,
   fetchMessages,
   fetchOpenCodeCommands,
   fetchPendingApprovals,
@@ -2771,6 +2772,7 @@ function parseSlashCommand(input: string): { command: string; argumentsList: str
 
 export function App() {
   const PROJECTS_PAGE_SIZE = 120;
+  const DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY = "opencode.desktopSidebarWidth";
   const fixtureMode = useMemo(() => resolveDevFixtureMode(), []);
 
   const [authLoading, setAuthLoading] = useState(true);
@@ -2780,6 +2782,7 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [lanUrl, setLanUrl] = useState<string | null>(null);
 
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectRootPath, setNewProjectRootPath] = useState("");
@@ -2895,6 +2898,19 @@ export function App() {
   const [isMobileViewport, setIsMobileViewport] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 720px)").matches
   );
+  const [desktopSidebarWidth, setDesktopSidebarWidth] = useState(() => {
+    if (typeof window === "undefined") {
+      return 390;
+    }
+
+    try {
+      const rawValue = window.localStorage.getItem(DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY);
+      const parsedValue = rawValue ? Number(rawValue) : NaN;
+      return Number.isFinite(parsedValue) ? parsedValue : 390;
+    } catch {
+      return 390;
+    }
+  });
   const [desktopProjectControlsCollapsed, setDesktopProjectControlsCollapsed] = useState(true);
   const [desktopChatToolbarCollapsed, setDesktopChatToolbarCollapsed] = useState(true);
   const [activeMainView, setActiveMainView] = useState<"chat" | "files">("chat");
@@ -2911,6 +2927,8 @@ export function App() {
   const refreshDebounceRef = useRef<number | null>(null);
   const streamReconnectTimerRef = useRef<number | null>(null);
   const streamReconnectAttemptRef = useRef(0);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const resizingSidebarRef = useRef(false);
   const projectFileDirectoryRequestsRef = useRef<Set<string>>(new Set());
   const syncInFlightRef = useRef(false);
   const desktopProjectSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -3279,6 +3297,10 @@ export function App() {
       setSyncingProjects(false);
     }
   }
+
+  useEffect(() => {
+    fetchLanUrl().then((data) => setLanUrl(data.url)).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -3725,6 +3747,92 @@ export function App() {
       window.clearInterval(intervalId);
     };
   }, [stopFeedbackVisible, streamStatus]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!resizingSidebarRef.current || !shellRef.current || isMobileViewport) {
+        return;
+      }
+      if (event.buttons !== 1) {
+        resizingSidebarRef.current = false;
+        return;
+      }
+
+      const rect = shellRef.current.getBoundingClientRect();
+      const minSidebarWidth = 300;
+      const minChatWidth = 420;
+      const availableSidebarWidth = Math.max(0, rect.width - minChatWidth - 8);
+      const effectiveMinSidebarWidth = Math.min(minSidebarWidth, availableSidebarWidth);
+      const maxSidebarWidth = Math.max(effectiveMinSidebarWidth, Math.min(680, availableSidebarWidth));
+      const nextWidth = event.clientX - rect.left;
+      const clampedWidth = Math.min(maxSidebarWidth, Math.max(effectiveMinSidebarWidth, nextWidth));
+      setDesktopSidebarWidth(clampedWidth);
+    };
+
+    const handlePointerUp = () => {
+      resizingSidebarRef.current = false;
+    };
+
+    const handlePointerCancel = () => {
+      resizingSidebarRef.current = false;
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+    };
+  }, [isMobileViewport]);
+
+  useEffect(() => {
+    const shellElement = shellRef.current;
+    if (!shellElement || isMobileViewport) {
+      return;
+    }
+
+    const clampDesktopSidebarWidth = () => {
+      const rect = shellElement.getBoundingClientRect();
+      const minSidebarWidth = 300;
+      const minChatWidth = 420;
+      const availableSidebarWidth = Math.max(0, rect.width - minChatWidth - 8);
+      const effectiveMinSidebarWidth = Math.min(minSidebarWidth, availableSidebarWidth);
+      const maxSidebarWidth = Math.max(effectiveMinSidebarWidth, Math.min(680, availableSidebarWidth));
+      setDesktopSidebarWidth((current) => Math.min(maxSidebarWidth, Math.max(effectiveMinSidebarWidth, current)));
+    };
+
+    clampDesktopSidebarWidth();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const resizeObserver = new ResizeObserver(clampDesktopSidebarWidth);
+      resizeObserver.observe(shellElement);
+      return () => {
+        resizeObserver.disconnect();
+      };
+    }
+
+    window.addEventListener("resize", clampDesktopSidebarWidth);
+    return () => {
+      window.removeEventListener("resize", clampDesktopSidebarWidth);
+    };
+  }, [isMobileViewport, visibleProjects.length]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY,
+        String(Math.round(desktopSidebarWidth))
+      );
+    } catch {
+      // Ignore storage failures so resizing still works in restricted browsers.
+    }
+  }, [DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY, desktopSidebarWidth]);
 
   const schedulerHeartbeat = useMemo(
     () =>
@@ -5417,7 +5525,15 @@ export function App() {
   }
 
   return (
-    <div className="shell">
+    <div
+      className="shell"
+      ref={shellRef}
+      style={
+        isMobileViewport
+          ? undefined
+          : { gridTemplateColumns: `${desktopSidebarWidth}px 8px minmax(0, 1fr)` }
+      }
+    >
       <CommandPickerModal
         open={commandPickerOpen}
         query={commandSearch}
@@ -5644,7 +5760,83 @@ export function App() {
             void loadMoreProjects();
           }}
         />
+
+        <div className="sidebar-phone-link">
+          <span>📱 Open on phone:</span>
+          {lanUrl ? (
+            <a
+              href={lanUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {lanUrl.replace(/^https?:\/\//, "")}
+            </a>
+          ) : (
+            <a
+              href={window.location.origin}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {window.location.host}
+            </a>
+          )}
+        </div>
       </aside>
+
+      <div
+        className="sidebar-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize projects sidebar"
+        aria-valuemin={300}
+        aria-valuemax={(() => {
+          const minSidebarWidth = 300;
+          const minChatWidth = 420;
+          const shellWidth = shellRef.current?.getBoundingClientRect().width;
+          return shellWidth == null
+            ? 680
+            : Math.max(minSidebarWidth, Math.min(680, shellWidth - minChatWidth - 8));
+        })()}
+        aria-valuenow={Math.round(desktopSidebarWidth)}
+        tabIndex={isMobileViewport ? -1 : 0}
+        onPointerDown={(event) => {
+          if (isMobileViewport) {
+            return;
+          }
+          event.preventDefault();
+          resizingSidebarRef.current = true;
+        }}
+        onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) => {
+          if (isMobileViewport || !shellRef.current) {
+            return;
+          }
+
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+            return;
+          }
+
+          event.preventDefault();
+
+          const rect = shellRef.current.getBoundingClientRect();
+          const minSidebarWidth = 300;
+          const minChatWidth = 420;
+          const availableSidebarWidth = Math.max(0, rect.width - minChatWidth - 8);
+          const effectiveMinSidebarWidth = Math.min(minSidebarWidth, availableSidebarWidth);
+          const maxSidebarWidth = Math.max(effectiveMinSidebarWidth, Math.min(680, availableSidebarWidth));
+
+          setDesktopSidebarWidth((current) => {
+            if (event.key === "Home") {
+              return effectiveMinSidebarWidth;
+            }
+            if (event.key === "End") {
+              return maxSidebarWidth;
+            }
+
+            const delta = event.key === "ArrowRight" ? 24 : -24;
+            return Math.min(maxSidebarWidth, Math.max(effectiveMinSidebarWidth, current + delta));
+          });
+        }}
+      />
 
       <main className={`chat-pane ${showMobileProjectList ? "" : "visible"}`}>
         <header className="chat-header">

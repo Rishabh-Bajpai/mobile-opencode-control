@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 
 def _as_bool(value: str, default: bool = False) -> bool:
@@ -36,6 +37,7 @@ class Settings:
     builtin_tts_speaker: str
     builtin_tts_language: str
     default_project_root: str
+    frontend_port: int
 
 
 def load_settings() -> Settings:
@@ -72,6 +74,8 @@ def load_settings() -> Settings:
     builtin_tts_speaker = os.getenv("BUILTIN_TTS_SPEAKER", "")
     builtin_tts_language = os.getenv("BUILTIN_TTS_LANGUAGE", "")
     default_project_root = os.getenv("DEFAULT_PROJECT_ROOT", "")
+    parsed_frontend = urlparse(frontend_origin)
+    frontend_port = parsed_frontend.port or 5173
 
     return Settings(
         app_env=app_env,
@@ -100,4 +104,5 @@ def load_settings() -> Settings:
         builtin_tts_speaker=builtin_tts_speaker,
         builtin_tts_language=builtin_tts_language,
         default_project_root=default_project_root,
+        frontend_port=frontend_port,
     )
