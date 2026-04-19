@@ -12,6 +12,24 @@ A mobile-first, Telegram-like web controller for local OpenCode sessions. No des
 - **Real-time streaming** — Watch code being written as it happens
 - **Multi-project** — Manage unlimited projects with instant switching
 
+## Screenshots
+
+### Mobile Views
+
+| Project List | Chat View | Files View |
+|-------------|-----------|------------|
+| ![Mobile Project List](docs/resources/screenshots/mobile-project-list.png) | ![Mobile Chat](docs/resources/screenshots/mobile-view.png) | ![Mobile Files](docs/resources/screenshots/mobile-files-view.png) |
+
+| Menu |
+|------|
+| ![Mobile Menu](docs/resources/screenshots/mobile-menu-view.png) |
+
+### Desktop Views
+
+| Main Chat | File Explorer |
+|----------|--------------|
+| ![Desktop Chat](docs/resources/screenshots/desktop-view.png) | ![Desktop Files](docs/resources/screenshots/desktop-files-view.png) |
+
 ## Roadmap
 
 **Shipping now (v0.1.x)** — Core chat, streaming, voice, file browser, scheduled tasks.
