@@ -2772,6 +2772,7 @@ function parseSlashCommand(input: string): { command: string; argumentsList: str
 
 export function App() {
   const PROJECTS_PAGE_SIZE = 120;
+  const SESSION_LIST_REFRESH_MS = 15000;
   const DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY = "opencode.desktopSidebarWidth";
   const fixtureMode = useMemo(() => resolveDevFixtureMode(), []);
 
@@ -4053,7 +4054,10 @@ export function App() {
       const pendingProjectId = pendingMessageRefreshRef.current;
       if (pendingProjectId && pendingProjectId === projectId) {
         pendingMessageRefreshRef.current = null;
-        void loadMessages(projectId, { silent: true });
+        void Promise.all([
+          loadMessages(projectId, { silent: true }),
+          loadProjectSessions(projectId, { silent: true }),
+        ]);
       }
       if (requestId === messageLoadRequestRef.current) {
         if (!options?.silent) {
@@ -4259,11 +4263,14 @@ export function App() {
     );
   }
 
-  async function loadProjectSessions(projectId: string) {
+  async function loadProjectSessions(projectId: string, options?: { silent?: boolean }) {
+    const silent = options?.silent ?? false;
     const requestId = sessionLoadRequestRef.current + 1;
     sessionLoadRequestRef.current = requestId;
-    setSessionLoading(true);
-    setSessionError(null);
+    if (!silent) {
+      setSessionLoading(true);
+      setSessionError(null);
+    }
     try {
       const result = await fetchProjectSessions(projectId);
       if (requestId !== sessionLoadRequestRef.current) {
@@ -4276,11 +4283,13 @@ export function App() {
       if (requestId !== sessionLoadRequestRef.current) {
         return;
       }
-      setSessionError(error instanceof Error ? error.message : "Failed to load sessions");
-      setProjectSessions([]);
-      setActiveSessionId(null);
+      if (!silent) {
+        setSessionError(error instanceof Error ? error.message : "Failed to load sessions");
+        setProjectSessions([]);
+        setActiveSessionId(null);
+      }
     } finally {
-      if (requestId === sessionLoadRequestRef.current) {
+      if (!silent && requestId === sessionLoadRequestRef.current) {
         setSessionLoading(false);
       }
     }
@@ -4386,7 +4395,10 @@ export function App() {
       if (messageRequestInFlightRef.current) {
         pendingMessageRefreshRef.current = projectId;
       } else {
-        void loadMessages(projectId, { silent: true });
+        void Promise.all([
+          loadMessages(projectId, { silent: true }),
+          loadProjectSessions(projectId, { silent: true }),
+        ]);
       }
       refreshDebounceRef.current = null;
     }, 700);
@@ -4543,6 +4555,32 @@ export function App() {
     setProjectFileContentError(null);
     setProjectFileContentLoading(false);
   }, [isAuthenticated, activeProjectId]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !activeProjectId) {
+      return;
+    }
+
+    const refreshSessions = () => {
+      void loadProjectSessions(activeProjectId, { silent: true });
+    };
+
+    const intervalId = window.setInterval(refreshSessions, SESSION_LIST_REFRESH_MS);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshSessions();
+      }
+    };
+
+    window.addEventListener("focus", refreshSessions);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshSessions);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isAuthenticated, activeProjectId, SESSION_LIST_REFRESH_MS]);
 
   useEffect(() => {
     if (!activeProjectId && activeMainView !== "chat") {
@@ -5226,6 +5264,7 @@ export function App() {
       setMessages((current) => [...current, result.message]);
       await refreshProjectsAndStatus(activeProjectId);
       await Promise.all([
+        loadProjectSessions(activeProjectId, { silent: true }),
         loadMessages(activeProjectId),
         loadPendingApprovals(activeProjectId),
       ]);
