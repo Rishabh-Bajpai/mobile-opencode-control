@@ -121,6 +121,26 @@ function resolveDevFixtureMode(): DevFixtureMode | null {
   }
 }
 
+function getManualInstallMessage() {
+  if (typeof window === "undefined") {
+    return "Install is available from your browser menu when supported.";
+  }
+
+  const userAgent = window.navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/i.test(userAgent);
+  const isFirefox = /Firefox/i.test(userAgent);
+
+  if (isIOS) {
+    return "Use Share > Add to Home Screen to install this app.";
+  }
+
+  if (isFirefox) {
+    return "Use your browser menu and choose Add to Home Screen to install this app.";
+  }
+
+  return "Install this app from your browser menu when the direct install prompt is not available.";
+}
+
 function RuntimeControls({
   models,
   agents,
@@ -326,13 +346,13 @@ function InstallControls({
         <span>Standalone launch and offline shell</span>
       </div>
       <small>{installMessage}</small>
-      {!installed ? (
+      {!installed && canInstall ? (
         <div className="notification-actions">
           <button
             type="button"
             className="secondary-button"
             onClick={onInstall}
-            disabled={!canInstall || installing}
+            disabled={installing}
           >
             {installing ? "Opening..." : "Install"}
           </button>
@@ -2910,11 +2930,12 @@ export function App() {
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileNewProjectOpen, setMobileNewProjectOpen] = useState(false);
   const [clockTick, setClockTick] = useState(() => Date.now());
+  const manualInstallMessage = getManualInstallMessage();
   const installMessage = appInstalled
     ? "This app is already installed and can launch in standalone mode."
     : deferredInstallPrompt
     ? "Install this app for quicker launch, home screen access, and offline shell support."
-    : "Install becomes available when this browser reports the app as installable. If you are on iPhone or iPad, use Share > Add to Home Screen.";
+    : manualInstallMessage;
   const suggestedProjectRoot = useMemo(
     () => getSuggestedProjectRoot(projects, activeProjectId),
     [projects, activeProjectId]
