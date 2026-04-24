@@ -79,6 +79,11 @@ interface SchedulerStatus {
   lastPrunedCount: number;
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
 type DevFixtureMode =
   | "task-run-success"
   | "task-run-error"
@@ -297,6 +302,42 @@ function NotificationControls({
           Turn off
         </button>
       </div>
+    </div>
+  );
+}
+
+function InstallControls({
+  canInstall,
+  installed,
+  installMessage,
+  installing,
+  onInstall,
+}: {
+  canInstall: boolean;
+  installed: boolean;
+  installMessage: string;
+  installing: boolean;
+  onInstall: () => void;
+}) {
+  return (
+    <div className="install-controls">
+      <div className="toolbar-card-head">
+        <strong>Install App</strong>
+        <span>Standalone launch and offline shell</span>
+      </div>
+      <small>{installMessage}</small>
+      {!installed ? (
+        <div className="notification-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={onInstall}
+            disabled={!canInstall || installing}
+          >
+            {installing ? "Opening..." : "Install"}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2836,6 +2877,16 @@ export function App() {
   });
   const [isChatNearBottom, setIsChatNearBottom] = useState(true);
   const [unreadEntryId, setUnreadEntryId] = useState<string | null>(null);
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installingApp, setInstallingApp] = useState(false);
+  const [appInstalled, setAppInstalled] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    const nav = window.navigator as Navigator & { standalone?: boolean };
+    return window.matchMedia("(display-mode: standalone)").matches || nav.standalone === true;
+  });
   const [isMobileViewport, setIsMobileViewport] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 720px)").matches
   );
@@ -2859,6 +2910,11 @@ export function App() {
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileNewProjectOpen, setMobileNewProjectOpen] = useState(false);
   const [clockTick, setClockTick] = useState(() => Date.now());
+  const installMessage = appInstalled
+    ? "This app is already installed and can launch in standalone mode."
+    : deferredInstallPrompt
+    ? "Install this app for quicker launch, home screen access, and offline shell support."
+    : "Install becomes available when this browser reports the app as installable. If you are on iPhone or iPad, use Share > Add to Home Screen.";
   const suggestedProjectRoot = useMemo(
     () => getSuggestedProjectRoot(projects, activeProjectId),
     [projects, activeProjectId]
@@ -4445,6 +4501,42 @@ export function App() {
   }, [isAuthenticated]);
 
   useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setDeferredInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setAppInstalled(true);
+      setInstallingApp(false);
+      setDeferredInstallPrompt(null);
+    };
+
+    const displayModeQuery = window.matchMedia("(display-mode: standalone)");
+    const handleDisplayModeChange = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        setAppInstalled(true);
+        setDeferredInstallPrompt(null);
+      }
+    };
+
+    if (displayModeQuery.matches) {
+      setAppInstalled(true);
+      setDeferredInstallPrompt(null);
+    }
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+    displayModeQuery.addEventListener("change", handleDisplayModeChange);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+      displayModeQuery.removeEventListener("change", handleDisplayModeChange);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isAuthenticated || !activeProjectId) {
       taskLoadRequestRef.current += 1;
       sessionLoadRequestRef.current += 1;
@@ -5381,6 +5473,24 @@ export function App() {
     setCommandSearch("");
   }
 
+  async function handleInstallApp() {
+    if (!deferredInstallPrompt || appInstalled || installingApp) {
+      return;
+    }
+
+    setInstallingApp(true);
+    try {
+      await deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice;
+      if (choice.outcome !== "accepted") {
+        setInstallingApp(false);
+      }
+      setDeferredInstallPrompt(null);
+    } catch {
+      setInstallingApp(false);
+    }
+  }
+
   async function handlePermissionDecision(
     permissionId: string,
     responseValue: "approve" | "deny"
@@ -5913,7 +6023,7 @@ export function App() {
             <div className="chat-toolbar-head">
               <div>
                 <strong>Workspace controls</strong>
-                <span>Runtime, command help, and task scheduling</span>
+                <span>Runtime, install options, and task scheduling</span>
               </div>
               <button
                 type="button"
@@ -5973,6 +6083,18 @@ export function App() {
                       void handleEnableNotifications();
                     }}
                     onDisable={handleDisableNotifications}
+                  />
+                </div>
+
+                <div className="toolbar-card install-card">
+                  <InstallControls
+                    canInstall={deferredInstallPrompt !== null}
+                    installed={appInstalled}
+                    installMessage={installMessage}
+                    installing={installingApp}
+                    onInstall={() => {
+                      void handleInstallApp();
+                    }}
                   />
                 </div>
 
@@ -6301,6 +6423,17 @@ export function App() {
                     void handleEnableNotifications();
                   }}
                   onDisable={handleDisableNotifications}
+                />
+              </div>
+              <div className="toolbar-card install-card">
+                <InstallControls
+                  canInstall={deferredInstallPrompt !== null}
+                  installed={appInstalled}
+                  installMessage={installMessage}
+                  installing={installingApp}
+                  onInstall={() => {
+                    void handleInstallApp();
+                  }}
                 />
               </div>
               <ScheduledTaskPanel

@@ -9,6 +9,12 @@ def _as_bool(value: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _split_csv(value: str | None) -> tuple[str, ...]:
+    if value is None:
+        return tuple()
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
 @dataclass(frozen=True)
 class Settings:
     app_env: str
@@ -16,6 +22,7 @@ class Settings:
     app_password: str
     database_url: str
     frontend_origin: str
+    frontend_origins: tuple[str, ...]
     opencode_base_url: str
     opencode_username: str
     opencode_password: str
@@ -46,6 +53,7 @@ def load_settings() -> Settings:
     app_password = os.getenv("APP_PASSWORD", "opencode")
     database_url = os.getenv("DATABASE_URL", "sqlite:///backend/data/app.db")
     frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+    frontend_origins = _split_csv(os.getenv("FRONTEND_ORIGINS")) or (frontend_origin,)
     opencode_base_url = os.getenv("OPENCODE_BASE_URL", "http://127.0.0.1:4096")
     opencode_username = os.getenv("OPENCODE_SERVER_USERNAME", "")
     opencode_password = os.getenv("OPENCODE_SERVER_PASSWORD", "")
@@ -74,7 +82,7 @@ def load_settings() -> Settings:
     builtin_tts_speaker = os.getenv("BUILTIN_TTS_SPEAKER", "")
     builtin_tts_language = os.getenv("BUILTIN_TTS_LANGUAGE", "")
     default_project_root = os.getenv("DEFAULT_PROJECT_ROOT", "")
-    parsed_frontend = urlparse(frontend_origin)
+    parsed_frontend = urlparse(frontend_origins[0])
     frontend_port = parsed_frontend.port or 5173
 
     return Settings(
@@ -83,6 +91,7 @@ def load_settings() -> Settings:
         app_password=app_password,
         database_url=database_url,
         frontend_origin=frontend_origin,
+        frontend_origins=frontend_origins,
         opencode_base_url=opencode_base_url,
         opencode_username=opencode_username,
         opencode_password=opencode_password,

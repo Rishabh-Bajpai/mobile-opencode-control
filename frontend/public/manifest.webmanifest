@@ -1,13 +1,16 @@
 {
   "name": "OpenCode Web Controller",
   "short_name": "OpenCode",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "portrait",
   "background_color": "#17212b",
   "theme_color": "#17212b",
   "description": "Mobile-friendly control panel for OpenCode.",
+  "categories": ["productivity", "developer"],
   "icons": [
     {
       "src": "/pwa-icon.svg",

@@ -100,6 +100,24 @@ npm --prefix frontend install
 cp .env.example .env
 ```
 
+For local-only development, the defaults are enough.
+
+If you plan to access the app through a reverse proxy or HTTPS hostname, update `.env` to allow both local development and your public host:
+
+```env
+FRONTEND_ORIGIN=http://localhost:5173
+FRONTEND_ORIGINS=http://localhost:5173,https://your-domain.example
+FRONTEND_ALLOWED_HOSTS=localhost,127.0.0.1,your-domain.example
+OPENCODE_CORS_ORIGINS=http://localhost:5173,https://your-domain.example
+```
+
+Notes:
+
+- `FRONTEND_ORIGINS` controls backend CORS allowlists.
+- `FRONTEND_ALLOWED_HOSTS` controls Vite dev-server host allowlists.
+- `OPENCODE_CORS_ORIGINS` controls allowed browser origins for the OpenCode server.
+- Keep `http://localhost:5173` in the list if you still use local dev directly.
+
 4. Start services (required order):
 
 ```bash
@@ -136,6 +154,8 @@ Use helper scripts for local development:
 
 Runtime logs/metadata are written under `.runtime/`.
 
+The helper scripts load `.env` automatically.
+
 ## Auto-start on Ubuntu (systemd)
 
 Install the systemd stack:
@@ -165,6 +185,8 @@ sudo journalctl -u mobile-opencode-control-opencode.service -f
 sudo journalctl -u mobile-opencode-control-backend.service -f
 sudo journalctl -u mobile-opencode-control-frontend.service -f
 ```
+
+The systemd service launcher scripts also load `.env`, while preserving service-managed runtime values like the chosen localhost ports.
 
 ### Restart after code changes
 
@@ -199,6 +221,31 @@ If frontend fails after dependency changes, reinstall deps and restart frontend:
 npm --prefix frontend ci
 sudo systemctl restart mobile-opencode-control-frontend.service
 ```
+
+### Reverse proxy and PWA installability
+
+If you want PWA install prompts on mobile browsers, serve the app over HTTPS from a trusted hostname. A plain LAN URL such as `http://192.168.x.x:5173` is usually not enough for install prompts.
+
+Typical setup:
+
+1. Run the app stack locally with the provided scripts or systemd units.
+2. Put Nginx, Caddy, or another reverse proxy in front of the frontend dev server.
+3. Terminate TLS at the proxy for a hostname such as `https://your-domain.example`.
+4. Add that hostname to these `.env` values:
+
+```env
+FRONTEND_ORIGINS=http://localhost:5173,https://your-domain.example
+FRONTEND_ALLOWED_HOSTS=localhost,127.0.0.1,your-domain.example
+OPENCODE_CORS_ORIGINS=http://localhost:5173,https://your-domain.example
+```
+
+5. Restart the stack after editing `.env`:
+
+```bash
+sudo systemctl restart mobile-opencode-control.target
+```
+
+If the browser still shows stale connection or host-allow errors after a config change, do a hard refresh or reopen the page after the restart.
 
 Uninstall:
 

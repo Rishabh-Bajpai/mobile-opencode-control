@@ -39,7 +39,7 @@ def create_app() -> Flask:
     app.config["SESSION_COOKIE_SECURE"] = settings.app_env == "production"
 
     if settings.cors_enabled:
-        CORS(app, supports_credentials=True, origins=[settings.frontend_origin])
+        CORS(app, supports_credentials=True, origins=list(settings.frontend_origins))
 
     db.init_app(app)
 

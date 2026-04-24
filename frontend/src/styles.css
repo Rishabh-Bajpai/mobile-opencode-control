@@ -987,7 +987,18 @@ input {
   gap: 0.55rem;
 }
 
+.install-controls {
+  display: grid;
+  gap: 0.55rem;
+}
+
 .notification-controls small {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.install-controls small {
   color: var(--text-muted);
   font-size: 0.75rem;
   line-height: 1.45;
