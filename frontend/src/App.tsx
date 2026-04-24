@@ -301,66 +301,6 @@ function NotificationControls({
   );
 }
 
-function CommandHelpBar({
-  commands,
-  onInsert,
-  onOpenPicker,
-  defaultOpen = false,
-}: {
-  commands: OpenCodeCommand[];
-  onInsert: (commandName: string) => void;
-  onOpenPicker: () => void;
-  defaultOpen?: boolean;
-}) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
-  useEffect(() => {
-    if (defaultOpen) {
-      setIsOpen(true);
-    }
-  }, [defaultOpen]);
-
-  if (commands.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className={`command-help-bar ${isOpen ? "open" : ""}`}>
-      <button
-        type="button"
-        className="command-help-toggle"
-        onClick={() => setIsOpen((current) => !current)}
-        aria-expanded={isOpen}
-      >
-        Commands
-        <span>{commands.length}</span>
-      </button>
-      {isOpen ? (
-        <>
-          <div className="command-help-actions">
-            <button type="button" className="command-picker-button" onClick={onOpenPicker}>
-              Browse commands
-            </button>
-          </div>
-          <div className="command-chip-list">
-            {commands.slice(0, 12).map((command) => (
-              <button
-                key={command.name}
-                type="button"
-                className="command-chip"
-                title={command.description || `Insert /${command.name}`}
-                onClick={() => onInsert(command.name)}
-              >
-                /{command.name}
-              </button>
-            ))}
-          </div>
-        </>
-      ) : null}
-    </div>
-  );
-}
-
 function CommandPickerModal({
   open,
   query,
@@ -6036,14 +5976,6 @@ export function App() {
                   />
                 </div>
 
-                <div className="toolbar-card commands-card">
-                  <CommandHelpBar
-                    commands={availableCommands}
-                    onInsert={handleInsertCommand}
-                    onOpenPicker={() => setCommandPickerOpen(true)}
-                    defaultOpen={!isMobileViewport}
-                  />
-                </div>
               </div>
 
               <ScheduledTaskPanel
@@ -6369,14 +6301,6 @@ export function App() {
                     void handleEnableNotifications();
                   }}
                   onDisable={handleDisableNotifications}
-                />
-              </div>
-              <div className="toolbar-card commands-card">
-                <CommandHelpBar
-                  commands={availableCommands}
-                  onInsert={handleInsertCommand}
-                  onOpenPicker={() => setCommandPickerOpen(true)}
-                  defaultOpen={false}
                 />
               </div>
               <ScheduledTaskPanel
