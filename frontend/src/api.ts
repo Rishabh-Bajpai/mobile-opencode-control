@@ -10,6 +10,7 @@ import type {
   ProjectDirectoryListResponse,
   ProjectsResponse,
   ScheduledTaskDetails,
+  ScheduledTaskMetrics,
   ScheduledTaskRun,
   ScheduledTask,
   ProjectsSyncResponse,
@@ -367,11 +368,7 @@ export async function fetchScheduledTask(projectId: string): Promise<ScheduledTa
 
 export async function saveScheduledTask(
   projectId: string,
-  input: {
-    instruction: string;
-    intervalMinutes: number;
-    enabled: boolean;
-  }
+  input: Partial<ScheduledTask> & { instruction: string; intervalMinutes: number; enabled: boolean }
 ): Promise<{ task: ScheduledTask }> {
   return request(`/api/projects/${projectId}/task`, {
     method: "PUT",
@@ -380,18 +377,22 @@ export async function saveScheduledTask(
 }
 
 export async function deleteScheduledTask(
-  projectId: string
+  projectId: string,
+  taskId?: string | null
 ): Promise<{ ok: boolean; deleted: boolean }> {
-  return request(`/api/projects/${projectId}/task`, {
+  const query = taskId ? `?taskId=${encodeURIComponent(taskId)}` : "";
+  return request(`/api/projects/${projectId}/task${query}`, {
     method: "DELETE",
   });
 }
 
 export async function runScheduledTaskNow(
-  projectId: string
-): Promise<{ task: ScheduledTask; run: ScheduledTaskRun }> {
+  projectId: string,
+  taskId?: string | null
+): Promise<{ task: ScheduledTask; run: ScheduledTaskRun; metrics?: ScheduledTaskMetrics }> {
   return request(`/api/projects/${projectId}/task/run`, {
     method: "POST",
+    body: JSON.stringify({ taskId }),
   });
 }
 
@@ -400,4 +401,26 @@ export async function fetchScheduledTaskRuns(
   limit = 20
 ): Promise<{ runs: ScheduledTaskRun[] }> {
   return request(`/api/projects/${projectId}/task/runs?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export async function fetchScheduledTasks(projectId: string): Promise<{ tasks: ScheduledTask[] }> {
+  return request(`/api/projects/${projectId}/tasks`);
+}
+
+export async function pauseScheduledTask(projectId: string, taskId: string): Promise<{ task: ScheduledTask }> {
+  return request(`/api/projects/${projectId}/tasks/${encodeURIComponent(taskId)}/pause`, { method: "POST" });
+}
+
+export async function resumeScheduledTask(projectId: string, taskId: string): Promise<{ task: ScheduledTask }> {
+  return request(`/api/projects/${projectId}/tasks/${encodeURIComponent(taskId)}/resume`, { method: "POST" });
+}
+
+export async function previewScheduledTask(
+  projectId: string,
+  input: Partial<ScheduledTask>
+): Promise<{ runs: string[] }> {
+  return request(`/api/projects/${projectId}/tasks/preview`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }

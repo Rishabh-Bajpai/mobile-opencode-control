@@ -20,11 +20,14 @@ import {
   fetchSchedulerStatus,
   fetchScheduledTask,
   fetchScheduledTaskRuns,
+  pauseScheduledTask,
+  previewScheduledTask,
   getAuthState,
   login,
   logout,
   opencodeHealth,
   respondPermission,
+  resumeScheduledTask,
   runScheduledTaskNow,
   runCommand,
   saveScheduledTask,
@@ -1203,6 +1206,7 @@ function timelineEventToTaskRun(event: TimelineEvent): ScheduledTaskRun | null {
   const payload = event.payload ?? {};
   const asString = (value: unknown) => (typeof value === "string" ? value : null);
   const asBoolean = (value: unknown) => Boolean(value);
+  const asNumber = (value: unknown) => (typeof value === "number" ? value : null);
 
   const taskRunId = asString(payload.taskRunId) ?? asString(payload.task_run_id) ?? event.id;
   const status = asString(payload.status) ?? "unknown";
@@ -1218,6 +1222,14 @@ function timelineEventToTaskRun(event: TimelineEvent): ScheduledTaskRun | null {
     startedAt: asString(payload.startedAt) ?? event.createdAt,
     finishedAt: asString(payload.finishedAt),
     heartbeatLoaded: asBoolean(payload.heartbeatLoaded),
+    runNumber: asNumber(payload.runNumber) ?? 1,
+    modelUsed: asString(payload.modelUsed),
+    agentUsed: asString(payload.agentUsed),
+    timeoutUsed: asNumber(payload.timeoutUsed),
+    goalAttempted: asBoolean(payload.goalAttempted),
+    goalMet: typeof payload.goalMet === "boolean" ? payload.goalMet : null,
+    goalOutput: asString(payload.goalOutput),
+    retryAttempt: asNumber(payload.retryAttempt) ?? 0,
     outputPreview: asString(payload.outputPreview),
     error: asString(payload.error),
   };
@@ -2573,33 +2585,101 @@ function ScheduledTaskPanel({
   deleting,
   error,
   instruction,
+  name,
+  description,
+  taskType,
   intervalMinutes,
+  cronExpression,
+  onceRunAt,
+  timezone,
+  model,
+  agent,
+  maxRuns,
+  runTimeoutMinutes,
+  heartbeatEnabled,
+  goalDefinition,
+  notificationUrl,
   enabled,
   task,
+  tasks,
   runs,
+  previewRuns,
+  runtimeModels,
+  runtimeAgents,
+  onNewTask,
+  onSelectTask,
+  onNameChange,
+  onDescriptionChange,
+  onTaskTypeChange,
   onInstructionChange,
   onIntervalChange,
+  onCronExpressionChange,
+  onOnceRunAtChange,
+  onTimezoneChange,
+  onModelChange,
+  onAgentChange,
+  onMaxRunsChange,
+  onRunTimeoutMinutesChange,
+  onHeartbeatEnabledChange,
+  onGoalDefinitionChange,
+  onNotificationUrlChange,
   onEnabledChange,
   onSave,
   onRunNow,
   onDelete,
+  onPauseResume,
+  onPreview,
 }: {
   loading: boolean;
   saving: boolean;
   running: boolean;
   deleting: boolean;
   error: string | null;
+  name: string;
+  description: string;
   instruction: string;
+  taskType: ScheduledTask["taskType"];
   intervalMinutes: number;
+  cronExpression: string;
+  onceRunAt: string;
+  timezone: string;
+  model: string;
+  agent: string;
+  maxRuns: string;
+  runTimeoutMinutes: string;
+  heartbeatEnabled: boolean;
+  goalDefinition: string;
+  notificationUrl: string;
   enabled: boolean;
   task: ScheduledTask | null;
+  tasks: ScheduledTask[];
   runs: ScheduledTaskRun[];
+  previewRuns: string[];
+  runtimeModels: RuntimeModelOption[];
+  runtimeAgents: RuntimeAgentOption[];
+  onNewTask: () => void;
+  onSelectTask: (task: ScheduledTask) => void;
+  onNameChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+  onTaskTypeChange: (value: ScheduledTask["taskType"]) => void;
   onInstructionChange: (value: string) => void;
   onIntervalChange: (value: number) => void;
+  onCronExpressionChange: (value: string) => void;
+  onOnceRunAtChange: (value: string) => void;
+  onTimezoneChange: (value: string) => void;
+  onModelChange: (value: string) => void;
+  onAgentChange: (value: string) => void;
+  onMaxRunsChange: (value: string) => void;
+  onRunTimeoutMinutesChange: (value: string) => void;
+  onHeartbeatEnabledChange: (value: boolean) => void;
+  onGoalDefinitionChange: (value: string) => void;
+  onNotificationUrlChange: (value: string) => void;
   onEnabledChange: (value: boolean) => void;
   onSave: () => Promise<void>;
   onRunNow: () => Promise<void>;
   onDelete: () => Promise<void>;
+  onPauseResume: () => Promise<void>;
+  onPreview: () => Promise<void>;
 }) {
   const taskTone = task ? taskStatusTone(task.lastStatus) : "idle";
 
@@ -2622,6 +2702,41 @@ function ScheduledTaskPanel({
           </div>
         ) : null}
 
+        <div className="task-actions">
+          <button type="button" className="secondary-button" onClick={onNewTask}>New task</button>
+          {tasks.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={task?.id === item.id ? "secondary-button active" : "secondary-button"}
+              onClick={() => onSelectTask(item)}
+            >
+              {item.name || `Task ${item.id}`}
+            </button>
+          ))}
+        </div>
+
+        <div className="task-inline-fields">
+          <label>
+            <span>Name</span>
+            <input value={name} onChange={(event) => onNameChange(event.target.value)} />
+          </label>
+          <label>
+            <span>Type</span>
+            <select value={taskType} onChange={(event) => onTaskTypeChange(event.target.value as ScheduledTask["taskType"])}>
+              <option value="interval">Interval</option>
+              <option value="cron">Cron</option>
+              <option value="once">One-time</option>
+              <option value="goal">Goal</option>
+            </select>
+          </label>
+        </div>
+
+        <label>
+          <span>Description</span>
+          <input value={description} onChange={(event) => onDescriptionChange(event.target.value)} placeholder="Optional notes" />
+        </label>
+
         <label>
           <span>Instruction</span>
           <textarea
@@ -2632,7 +2747,7 @@ function ScheduledTaskPanel({
         </label>
 
         <div className="task-inline-fields">
-          <label>
+          {taskType === "interval" || taskType === "goal" ? <label>
             <span>Interval (minutes)</span>
             <input
               type="number"
@@ -2640,6 +2755,46 @@ function ScheduledTaskPanel({
               value={intervalMinutes}
               onChange={(event) => onIntervalChange(Number(event.target.value) || 5)}
             />
+          </label> : null}
+          {taskType === "cron" ? <label>
+            <span>Cron expression</span>
+            <input value={cronExpression} onChange={(event) => onCronExpressionChange(event.target.value)} placeholder="0 9 * * *" />
+          </label> : null}
+          {taskType === "once" ? <label>
+            <span>Run once at</span>
+            <input type="datetime-local" value={onceRunAt} onChange={(event) => onOnceRunAtChange(event.target.value)} />
+          </label> : null}
+          <label>
+            <span>Timezone</span>
+            <input value={timezone} onChange={(event) => onTimezoneChange(event.target.value)} placeholder="UTC" />
+          </label>
+        </div>
+
+        <div className="task-inline-fields">
+          <label>
+            <span>Model</span>
+            <select value={model} onChange={(event) => onModelChange(event.target.value)}>
+              <option value="">Server default</option>
+              {runtimeModels.map((item) => <option key={item.id} value={item.id}>{item.providerName} / {item.name}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Agent</span>
+            <select value={agent} onChange={(event) => onAgentChange(event.target.value)}>
+              <option value="">Server default</option>
+              {runtimeAgents.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div className="task-inline-fields">
+          <label>
+            <span>Max runs</span>
+            <input type="number" min={0} value={maxRuns} onChange={(event) => onMaxRunsChange(event.target.value)} placeholder="unlimited" />
+          </label>
+          <label>
+            <span>Timeout minutes</span>
+            <input type="number" min={1} value={runTimeoutMinutes} onChange={(event) => onRunTimeoutMinutesChange(event.target.value)} placeholder="none" />
           </label>
           <label className="task-enabled">
             <input
@@ -2649,6 +2804,27 @@ function ScheduledTaskPanel({
             />
             <span>Enabled</span>
           </label>
+          <label className="task-enabled">
+            <input type="checkbox" checked={heartbeatEnabled} onChange={(event) => onHeartbeatEnabledChange(event.target.checked)} />
+            <span>Use heartbeat</span>
+          </label>
+        </div>
+
+        {taskType === "goal" ? <label>
+          <span>Goal definition</span>
+          <textarea value={goalDefinition} onChange={(event) => onGoalDefinitionChange(event.target.value)} placeholder="Describe the objective. The agent will report GOAL_MET: yes/no." />
+        </label> : null}
+
+        <label>
+          <span>Notification URL</span>
+          <input value={notificationUrl} onChange={(event) => onNotificationUrlChange(event.target.value)} placeholder="Optional ntfy topic URL" />
+        </label>
+
+        <div className="task-actions">
+          <button type="button" className="secondary-button" onClick={() => void onPreview()}>
+            Preview next runs
+          </button>
+          {previewRuns.map((run) => <small key={run} className="task-status-badge idle">{new Date(run).toLocaleString()}</small>)}
         </div>
 
         <div className="task-actions">
@@ -2657,6 +2833,9 @@ function ScheduledTaskPanel({
           </button>
           <button type="button" disabled={running || !task} onClick={() => void onRunNow()}>
             {running ? "Running..." : "Run now"}
+          </button>
+          <button type="button" disabled={saving || !task} onClick={() => void onPauseResume()}>
+            {task?.enabled ? "Pause" : "Resume"}
           </button>
           <button
             type="button"
@@ -2684,12 +2863,15 @@ function ScheduledTaskPanel({
               {runs.slice(0, 8).map((run) => (
                 <li key={run.id} className={`task-run-item ${taskStatusTone(run.status)}`}>
                   <div className="task-run-item-main">
-                    <strong>{run.trigger === "manual" ? "Manual run" : "Scheduled run"}</strong>
+                    <strong>#{run.runNumber} {run.trigger === "manual" ? "Manual run" : "Scheduled run"}</strong>
                     <small>{run.startedAt ? new Date(run.startedAt).toLocaleString() : "Unknown time"}</small>
                   </div>
                   <div className="task-run-item-meta">
                     <span className={`task-status-badge ${taskStatusTone(run.status)}`}>{run.status}</span>
                     <span className="task-status-badge idle">{run.heartbeatLoaded ? "heartbeat loaded" : "heartbeat missing"}</span>
+                    {run.modelUsed ? <span className="task-status-badge idle">{run.modelUsed}</span> : null}
+                    {run.agentUsed ? <span className="task-status-badge idle">{run.agentUsed}</span> : null}
+                    {run.goalAttempted ? <span className="task-status-badge idle">goal {run.goalMet ? "met" : "open"}</span> : null}
                   </div>
                   {run.outputPreview ? <p>{run.outputPreview}</p> : null}
                   {run.error ? <p className="task-error-inline">{run.error}</p> : null}
@@ -2854,10 +3036,25 @@ export function App() {
   const [taskDeleting, setTaskDeleting] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [scheduledTask, setScheduledTask] = useState<ScheduledTask | null>(null);
+  const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
   const [scheduledRuns, setScheduledRuns] = useState<ScheduledTaskRun[]>([]);
   const [taskTimelineEvents, setTaskTimelineEvents] = useState<TimelineEvent[]>([]);
+  const [taskNameInput, setTaskNameInput] = useState("Scheduled task");
+  const [taskDescriptionInput, setTaskDescriptionInput] = useState("");
+  const [taskTypeInput, setTaskTypeInput] = useState<ScheduledTask["taskType"]>("interval");
   const [taskInstructionInput, setTaskInstructionInput] = useState("");
   const [taskIntervalInput, setTaskIntervalInput] = useState(15);
+  const [taskCronInput, setTaskCronInput] = useState("0 9 * * *");
+  const [taskOnceInput, setTaskOnceInput] = useState("");
+  const [taskTimezoneInput, setTaskTimezoneInput] = useState("UTC");
+  const [taskModelInput, setTaskModelInput] = useState("");
+  const [taskAgentInput, setTaskAgentInput] = useState("");
+  const [taskMaxRunsInput, setTaskMaxRunsInput] = useState("");
+  const [taskTimeoutInput, setTaskTimeoutInput] = useState("");
+  const [taskHeartbeatInput, setTaskHeartbeatInput] = useState(true);
+  const [taskGoalInput, setTaskGoalInput] = useState("");
+  const [taskNotificationUrlInput, setTaskNotificationUrlInput] = useState("");
+  const [taskPreviewRuns, setTaskPreviewRuns] = useState<string[]>([]);
   const [taskEnabledInput, setTaskEnabledInput] = useState(true);
 
   const [opencodeStatus, setOpencodeStatus] = useState("checking...");
@@ -3045,6 +3242,48 @@ export function App() {
     setExpandedMessageEntries({});
     setExpandedPartEntries({});
     previousActivityEntriesRef.current = [];
+  }
+
+  function resetTaskForm() {
+    setScheduledTask(null);
+    setScheduledRuns([]);
+    setTaskNameInput("Scheduled task");
+    setTaskDescriptionInput("");
+    setTaskTypeInput("interval");
+    setTaskInstructionInput("");
+    setTaskIntervalInput(15);
+    setTaskCronInput("0 9 * * *");
+    setTaskOnceInput("");
+    setTaskTimezoneInput(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+    setTaskModelInput("");
+    setTaskAgentInput("");
+    setTaskMaxRunsInput("");
+    setTaskTimeoutInput("");
+    setTaskHeartbeatInput(true);
+    setTaskGoalInput("");
+    setTaskNotificationUrlInput("");
+    setTaskPreviewRuns([]);
+    setTaskEnabledInput(true);
+  }
+
+  function populateTaskForm(task: ScheduledTask) {
+    setScheduledTask(task);
+    setTaskNameInput(task.name || "Scheduled task");
+    setTaskDescriptionInput(task.description ?? "");
+    setTaskTypeInput(task.taskType || "interval");
+    setTaskInstructionInput(task.instruction);
+    setTaskIntervalInput(task.intervalMinutes || 15);
+    setTaskCronInput(task.cronExpression ?? "0 9 * * *");
+    setTaskOnceInput(task.onceRunAt ? task.onceRunAt.slice(0, 16) : "");
+    setTaskTimezoneInput(task.timezone || "UTC");
+    setTaskModelInput(task.model ?? "");
+    setTaskAgentInput(task.agent ?? "");
+    setTaskMaxRunsInput(task.maxRuns === null ? "" : String(task.maxRuns));
+    setTaskTimeoutInput(task.runTimeoutMinutes === null ? "" : String(task.runTimeoutMinutes));
+    setTaskHeartbeatInput(task.heartbeatEnabled);
+    setTaskGoalInput(task.goalDefinition ?? "");
+    setTaskNotificationUrlInput(task.notificationUrl ?? "");
+    setTaskEnabledInput(task.enabled);
   }
 
   function focusSchedulerCard() {
@@ -3528,6 +3767,14 @@ export function App() {
             startedAt,
             finishedAt,
             heartbeatLoaded: fixtureMode === "task-run-success",
+            runNumber: 1,
+            modelUsed: null,
+            agentUsed: null,
+            timeoutUsed: null,
+            goalAttempted: false,
+            goalMet: null,
+            goalOutput: null,
+            retryAttempt: 0,
             outputPreview:
               fixtureMode === "task-run-success"
                 ? "Checked repository state and posted a clean status update."
@@ -4198,17 +4445,14 @@ export function App() {
       if (requestId !== taskLoadRequestRef.current) {
         return;
       }
+      setScheduledTasks(taskResult.tasks ?? (taskResult.task ? [taskResult.task] : []));
       setScheduledTask(taskResult.task);
       setScheduledRuns(runsResult.runs);
 
       if (taskResult.task) {
-        setTaskInstructionInput(taskResult.task.instruction);
-        setTaskIntervalInput(taskResult.task.intervalMinutes);
-        setTaskEnabledInput(taskResult.task.enabled);
+        populateTaskForm(taskResult.task);
       } else {
-        setTaskInstructionInput("");
-        setTaskIntervalInput(15);
-        setTaskEnabledInput(true);
+        resetTaskForm();
       }
     } catch (error) {
       if (requestId !== taskLoadRequestRef.current) {
@@ -4216,6 +4460,7 @@ export function App() {
       }
       setTaskError(error instanceof Error ? error.message : "Failed to load scheduled task");
       setScheduledTask(null);
+      setScheduledTasks([]);
       setScheduledRuns([]);
     } finally {
       if (requestId === taskLoadRequestRef.current) {
@@ -4347,8 +4592,22 @@ export function App() {
     setTaskError(null);
     try {
       const response = await saveScheduledTask(activeProjectId, {
+        id: scheduledTask?.id,
+        name: taskNameInput,
+        description: taskDescriptionInput,
         instruction: taskInstructionInput,
+        taskType: taskTypeInput,
+        cronExpression: taskCronInput,
+        onceRunAt: taskOnceInput ? new Date(taskOnceInput).toISOString() : null,
         intervalMinutes: taskIntervalInput,
+        timezone: taskTimezoneInput,
+        model: taskModelInput || null,
+        agent: taskAgentInput || null,
+        maxRuns: taskMaxRunsInput ? Number(taskMaxRunsInput) : null,
+        runTimeoutMinutes: taskTimeoutInput ? Number(taskTimeoutInput) : null,
+        heartbeatEnabled: taskHeartbeatInput,
+        goalDefinition: taskGoalInput || null,
+        notificationUrl: taskNotificationUrlInput || null,
         enabled: taskEnabledInput,
       });
       setScheduledTask(response.task);
@@ -4369,7 +4628,7 @@ export function App() {
     setTaskRunning(true);
     setTaskError(null);
     try {
-      const response = await runScheduledTaskNow(activeProjectId);
+      const response = await runScheduledTaskNow(activeProjectId, scheduledTask?.id);
       setScheduledTask(response.task);
       await loadTaskDetails(activeProjectId);
       await refreshProjectsAndStatus(activeProjectId);
@@ -4388,18 +4647,69 @@ export function App() {
     setTaskDeleting(true);
     setTaskError(null);
     try {
-      await deleteScheduledTask(activeProjectId);
+      await deleteScheduledTask(activeProjectId, scheduledTask?.id);
       setScheduledTask(null);
       setScheduledRuns([]);
       setTaskTimelineEvents([]);
-      setTaskInstructionInput("");
-      setTaskIntervalInput(15);
-      setTaskEnabledInput(true);
+      resetTaskForm();
+      await loadTaskDetails(activeProjectId);
       await refreshProjectsAndStatus(activeProjectId);
     } catch (error) {
       setTaskError(error instanceof Error ? error.message : "Failed to delete task");
     } finally {
       setTaskDeleting(false);
+    }
+  }
+
+  async function handleSelectTask(task: ScheduledTask) {
+    populateTaskForm(task);
+    if (!activeProjectId) {
+      return;
+    }
+    try {
+      const result = await fetchScheduledTaskRuns(activeProjectId, 20);
+      setScheduledRuns(result.runs.filter((run) => run.taskId === task.id));
+    } catch {
+      setScheduledRuns([]);
+    }
+  }
+
+  async function handlePreviewTaskSchedule() {
+    if (!activeProjectId) {
+      return;
+    }
+    setTaskError(null);
+    try {
+      const result = await previewScheduledTask(activeProjectId, {
+        taskType: taskTypeInput,
+        cronExpression: taskCronInput,
+        onceRunAt: taskOnceInput ? new Date(taskOnceInput).toISOString() : null,
+        intervalMinutes: taskIntervalInput,
+        timezone: taskTimezoneInput,
+      });
+      setTaskPreviewRuns(result.runs);
+    } catch (error) {
+      setTaskPreviewRuns([]);
+      setTaskError(error instanceof Error ? error.message : "Failed to preview schedule");
+    }
+  }
+
+  async function handlePauseResumeTask() {
+    if (!activeProjectId || !scheduledTask) {
+      return;
+    }
+    setTaskSaving(true);
+    setTaskError(null);
+    try {
+      const result = scheduledTask.enabled
+        ? await pauseScheduledTask(activeProjectId, scheduledTask.id)
+        : await resumeScheduledTask(activeProjectId, scheduledTask.id);
+      populateTaskForm(result.task);
+      await loadTaskDetails(activeProjectId);
+    } catch (error) {
+      setTaskError(error instanceof Error ? error.message : "Failed to update task state");
+    } finally {
+      setTaskSaving(false);
     }
   }
 
@@ -6057,6 +6367,63 @@ export function App() {
             </div>
             <div className={`chat-toolbar-content ${desktopChatToolbarCollapsed ? "collapsed" : ""}`}>
               <div className="chat-toolbar-grid">
+                <div className="toolbar-card scheduler-card scheduler-card-desktop">
+                  <ScheduledTaskPanel
+                    loading={taskLoading}
+                    saving={taskSaving}
+                    running={taskRunning}
+                    deleting={taskDeleting}
+                    error={taskError}
+                    name={taskNameInput}
+                    description={taskDescriptionInput}
+                    instruction={taskInstructionInput}
+                    taskType={taskTypeInput}
+                    intervalMinutes={taskIntervalInput}
+                    cronExpression={taskCronInput}
+                    onceRunAt={taskOnceInput}
+                    timezone={taskTimezoneInput}
+                    model={taskModelInput}
+                    agent={taskAgentInput}
+                    maxRuns={taskMaxRunsInput}
+                    runTimeoutMinutes={taskTimeoutInput}
+                    heartbeatEnabled={taskHeartbeatInput}
+                    goalDefinition={taskGoalInput}
+                    notificationUrl={taskNotificationUrlInput}
+                    enabled={taskEnabledInput}
+                    task={scheduledTask}
+                    tasks={scheduledTasks}
+                    runs={scheduledRuns}
+                    previewRuns={taskPreviewRuns}
+                    runtimeModels={runtimeModels}
+                    runtimeAgents={runtimeAgents}
+                    onNewTask={resetTaskForm}
+                    onSelectTask={(task) => {
+                      void handleSelectTask(task);
+                    }}
+                    onNameChange={setTaskNameInput}
+                    onDescriptionChange={setTaskDescriptionInput}
+                    onTaskTypeChange={setTaskTypeInput}
+                    onInstructionChange={setTaskInstructionInput}
+                    onIntervalChange={setTaskIntervalInput}
+                    onCronExpressionChange={setTaskCronInput}
+                    onOnceRunAtChange={setTaskOnceInput}
+                    onTimezoneChange={setTaskTimezoneInput}
+                    onModelChange={setTaskModelInput}
+                    onAgentChange={setTaskAgentInput}
+                    onMaxRunsChange={setTaskMaxRunsInput}
+                    onRunTimeoutMinutesChange={setTaskTimeoutInput}
+                    onHeartbeatEnabledChange={setTaskHeartbeatInput}
+                    onGoalDefinitionChange={setTaskGoalInput}
+                    onNotificationUrlChange={setTaskNotificationUrlInput}
+                    onEnabledChange={setTaskEnabledInput}
+                    onSave={handleSaveTask}
+                    onRunNow={handleRunTaskNow}
+                    onDelete={handleDeleteTask}
+                    onPauseResume={handlePauseResumeTask}
+                    onPreview={handlePreviewTaskSchedule}
+                  />
+                </div>
+
                 <div className="toolbar-card runtime-card">
                   <div className="toolbar-card-head">
                     <strong>Runtime</strong>
@@ -6121,24 +6488,6 @@ export function App() {
 
               </div>
 
-              <ScheduledTaskPanel
-                loading={taskLoading}
-                saving={taskSaving}
-                running={taskRunning}
-                deleting={taskDeleting}
-                error={taskError}
-                instruction={taskInstructionInput}
-                intervalMinutes={taskIntervalInput}
-                enabled={taskEnabledInput}
-                task={scheduledTask}
-                runs={scheduledRuns}
-                onInstructionChange={setTaskInstructionInput}
-                onIntervalChange={setTaskIntervalInput}
-                onEnabledChange={setTaskEnabledInput}
-                onSave={handleSaveTask}
-                onRunNow={handleRunTaskNow}
-                onDelete={handleDeleteTask}
-              />
             </div>
           </section>
         ) : null}
@@ -6433,8 +6782,62 @@ export function App() {
                   onDelete={() => {
                     void handleDeleteSession();
                   }}
-                />
-              </div>
+                  />
+                </div>
+              <ScheduledTaskPanel
+                loading={taskLoading}
+                saving={taskSaving}
+                running={taskRunning}
+                deleting={taskDeleting}
+                error={taskError}
+                name={taskNameInput}
+                description={taskDescriptionInput}
+                instruction={taskInstructionInput}
+                taskType={taskTypeInput}
+                intervalMinutes={taskIntervalInput}
+                cronExpression={taskCronInput}
+                onceRunAt={taskOnceInput}
+                timezone={taskTimezoneInput}
+                model={taskModelInput}
+                agent={taskAgentInput}
+                maxRuns={taskMaxRunsInput}
+                runTimeoutMinutes={taskTimeoutInput}
+                heartbeatEnabled={taskHeartbeatInput}
+                goalDefinition={taskGoalInput}
+                notificationUrl={taskNotificationUrlInput}
+                enabled={taskEnabledInput}
+                task={scheduledTask}
+                tasks={scheduledTasks}
+                runs={scheduledRuns}
+                previewRuns={taskPreviewRuns}
+                runtimeModels={runtimeModels}
+                runtimeAgents={runtimeAgents}
+                onNewTask={resetTaskForm}
+                onSelectTask={(task) => {
+                  void handleSelectTask(task);
+                }}
+                onNameChange={setTaskNameInput}
+                onDescriptionChange={setTaskDescriptionInput}
+                onTaskTypeChange={setTaskTypeInput}
+                onInstructionChange={setTaskInstructionInput}
+                onIntervalChange={setTaskIntervalInput}
+                onCronExpressionChange={setTaskCronInput}
+                onOnceRunAtChange={setTaskOnceInput}
+                onTimezoneChange={setTaskTimezoneInput}
+                onModelChange={setTaskModelInput}
+                onAgentChange={setTaskAgentInput}
+                onMaxRunsChange={setTaskMaxRunsInput}
+                onRunTimeoutMinutesChange={setTaskTimeoutInput}
+                onHeartbeatEnabledChange={setTaskHeartbeatInput}
+                onGoalDefinitionChange={setTaskGoalInput}
+                onNotificationUrlChange={setTaskNotificationUrlInput}
+                onEnabledChange={setTaskEnabledInput}
+                onSave={handleSaveTask}
+                onRunNow={handleRunTaskNow}
+                onDelete={handleDeleteTask}
+                onPauseResume={handlePauseResumeTask}
+                onPreview={handlePreviewTaskSchedule}
+              />
               <div className="toolbar-card notifications-card">
                 <NotificationControls
                   supported={notificationPermission !== "unsupported"}
@@ -6457,24 +6860,6 @@ export function App() {
                   }}
                 />
               </div>
-              <ScheduledTaskPanel
-                loading={taskLoading}
-                saving={taskSaving}
-                running={taskRunning}
-                deleting={taskDeleting}
-                error={taskError}
-                instruction={taskInstructionInput}
-                intervalMinutes={taskIntervalInput}
-                enabled={taskEnabledInput}
-                task={scheduledTask}
-                runs={scheduledRuns}
-                onInstructionChange={setTaskInstructionInput}
-                onIntervalChange={setTaskIntervalInput}
-                onEnabledChange={setTaskEnabledInput}
-                onSave={handleSaveTask}
-                onRunNow={handleRunTaskNow}
-                onDelete={handleDeleteTask}
-              />
             </div>
           </section>
         ) : null}

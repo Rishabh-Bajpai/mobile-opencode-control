@@ -138,9 +138,29 @@ export interface ProjectFileContent {
 export interface ScheduledTask {
   id: string;
   projectId: string;
+  name: string;
+  description: string | null;
   instruction: string;
+  taskType: "interval" | "cron" | "once" | "goal";
+  cronExpression: string | null;
+  onceRunAt: string | null;
   intervalMinutes: number;
+  timezone: string;
+  model: string | null;
+  agent: string | null;
   enabled: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  maxRuns: number | null;
+  runTimeoutMinutes: number | null;
+  heartbeatEnabled: boolean;
+  goalDefinition: string | null;
+  autoDisableOnGoalMet: boolean;
+  retryCount: number;
+  retryBackoffMinutes: number;
+  notificationUrl: string | null;
+  persistentSessionId: string | null;
+  totalRuns: number;
   nextRunAt: string | null;
   lastRunAt: string | null;
   lastStatus: string;
@@ -159,11 +179,28 @@ export interface ScheduledTaskRun {
   startedAt: string | null;
   finishedAt: string | null;
   heartbeatLoaded: boolean;
+  runNumber: number;
+  modelUsed: string | null;
+  agentUsed: string | null;
+  timeoutUsed: number | null;
+  goalAttempted: boolean;
+  goalMet: boolean | null;
+  goalOutput: string | null;
+  retryAttempt: number;
   outputPreview: string | null;
   error: string | null;
 }
 
+export interface ScheduledTaskMetrics {
+  totalRuns: number;
+  successRate: number | null;
+  avgRuntimeSeconds: number | null;
+  lastOutcomes: string[];
+}
+
 export interface ScheduledTaskDetails {
   task: ScheduledTask | null;
+  tasks: ScheduledTask[];
   runs: ScheduledTaskRun[];
+  metrics?: ScheduledTaskMetrics;
 }

@@ -939,6 +939,7 @@ input {
   display: grid;
   gap: 0.9rem;
   margin-top: 0.72rem;
+  min-height: 0;
 }
 
 .chat-toolbar-content.collapsed {
@@ -956,6 +957,7 @@ input {
   grid-template-columns: minmax(300px, 460px) minmax(340px, 1fr);
   gap: 0.9rem;
   align-items: start;
+  min-height: 0;
 }
 
 .toolbar-card {
@@ -963,6 +965,26 @@ input {
   border-radius: 16px;
   background: rgba(19, 33, 48, 0.84);
   padding: 0.85rem 0.9rem;
+  min-width: 0;
+}
+
+.scheduler-card-desktop {
+  grid-column: 1 / -1;
+  padding: 0;
+}
+
+.scheduler-card-desktop .task-panel {
+  margin: 0;
+  max-width: none;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+}
+
+.scheduler-card-desktop .task-panel[open] .task-panel-content {
+  max-height: min(56vh, 34rem);
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .commands-card {
@@ -1843,6 +1865,7 @@ input {
   border: 1px solid var(--border);
   border-radius: 16px;
   background: rgba(23, 33, 43, 0.86);
+  min-width: 0;
 }
 
 .task-panel summary {
@@ -1850,6 +1873,7 @@ input {
   padding: 0.5rem 0.65rem;
   font-size: 0.84rem;
   user-select: none;
+  overflow-wrap: anywhere;
 }
 
 .task-panel-content {
@@ -1857,6 +1881,8 @@ input {
   padding: 0.6rem;
   display: grid;
   gap: 0.55rem;
+  min-width: 0;
+  align-content: start;
 }
 
 .task-panel-content label {
@@ -1864,15 +1890,19 @@ input {
   gap: 0.25rem;
   font-size: 0.78rem;
   color: var(--text-muted);
+  min-width: 0;
 }
 
 .task-panel-content textarea,
-.task-panel-content input[type="number"] {
+.task-panel-content input,
+.task-panel-content select {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #0f1b29;
   color: var(--text-main);
   padding: 0.45rem 0.55rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .task-panel-content textarea {
@@ -1881,21 +1911,24 @@ input {
 }
 
 .task-inline-fields {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 0.6rem;
+  min-width: 0;
 }
 
 .task-enabled {
   display: flex !important;
   align-items: center;
   gap: 0.35rem;
+  min-width: 0;
 }
 
 .task-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.45rem;
+  min-width: 0;
 }
 
 .task-actions button {
@@ -1907,6 +1940,8 @@ input {
   color: #fff;
   font-weight: 600;
   cursor: pointer;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .task-actions button.danger {
@@ -1921,12 +1956,14 @@ input {
 .task-status-meta {
   display: grid;
   gap: 0.2rem;
+  min-width: 0;
 }
 
 .task-overview {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+  min-width: 0;
 }
 
 .task-status-badge {
@@ -1937,6 +1974,7 @@ input {
   border-radius: 999px;
   padding: 0 0.55rem;
   font-size: 0.72rem;
+  overflow-wrap: anywhere;
 }
 
 .task-status-badge.success {
@@ -1973,6 +2011,7 @@ input {
 .task-runs {
   display: grid;
   gap: 0.35rem;
+  min-width: 0;
 }
 
 .task-runs strong {
@@ -1985,6 +2024,7 @@ input {
   list-style: none;
   display: grid;
   gap: 0.28rem;
+  min-width: 0;
 }
 
 .task-runs li {
@@ -1996,6 +2036,7 @@ input {
   background: rgba(16, 27, 40, 0.5);
   font-size: 0.74rem;
   color: var(--text-muted);
+  min-width: 0;
 }
 
 .task-run-item-main,
@@ -2004,6 +2045,8 @@ input {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .task-run-item-main strong {
@@ -2014,6 +2057,29 @@ input {
 .task-runs li p {
   margin: 0;
   line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 721px) {
+  .chat-toolbar {
+    min-height: 0;
+  }
+
+  .chat-toolbar-content {
+    max-height: min(68vh, 52rem);
+    overflow: auto;
+    padding-right: 0.2rem;
+  }
+
+  .task-panel-content {
+    max-height: min(56vh, 34rem);
+    overflow: auto;
+    padding-right: 0.35rem;
+  }
+
+  .scheduler-card-desktop .task-panel-content {
+    max-height: min(56vh, 34rem);
+  }
 }
 
 .task-error-inline {
@@ -3087,5 +3153,50 @@ input {
   .mobile-settings-screen .notification-actions .secondary-button {
     width: 100%;
     min-width: 0;
+  }
+
+  .mobile-settings-screen .task-inline-fields,
+  .mobile-settings-screen .task-panel .task-inline-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mobile-settings-screen .task-actions,
+  .mobile-settings-screen .task-panel .task-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mobile-settings-screen .task-actions button,
+  .mobile-settings-screen .task-panel .task-actions button {
+    width: 100%;
+    min-width: 0;
+    flex-basis: auto;
+  }
+
+  .mobile-settings-screen .task-status-badge,
+  .mobile-settings-screen .task-panel .task-status-badge {
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .mobile-settings-screen .task-panel-content {
+    padding: 0.1rem 0;
+  }
+
+  .mobile-settings-screen .task-panel-content textarea {
+    min-height: 8.5rem;
+  }
+
+  .mobile-settings-screen .task-panel-content input,
+  .mobile-settings-screen .task-panel-content select,
+  .mobile-settings-screen .task-panel-content textarea {
+    max-width: 100%;
+  }
+
+  .mobile-settings-screen .task-overview,
+  .mobile-settings-screen .task-run-item-main,
+  .mobile-settings-screen .task-run-item-meta {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

@@ -29,6 +29,8 @@ class Settings:
     cors_enabled: bool
     scheduler_poll_interval_seconds: int
     task_run_retention_days: int
+    task_max_concurrent_runs: int
+    task_notification_url: str
     stt_base_url: str
     stt_model: str
     stt_api_key: str
@@ -62,6 +64,8 @@ def load_settings() -> Settings:
         os.getenv("SCHEDULER_POLL_INTERVAL_SECONDS", "20")
     )
     task_run_retention_days = int(os.getenv("TASK_RUN_RETENTION_DAYS", "30"))
+    task_max_concurrent_runs = int(os.getenv("TASK_MAX_CONCURRENT_RUNS", "2"))
+    task_notification_url = os.getenv("TASK_NOTIFICATION_URL", "")
     stt_base_url = os.getenv("STT_BASE_URL", "http://127.0.0.1:8969/v1")
     stt_model = os.getenv("STT_MODEL", "Systran/faster-whisper-medium.en")
     stt_api_key = os.getenv("STT_API_KEY", "")
@@ -98,6 +102,8 @@ def load_settings() -> Settings:
         cors_enabled=cors_enabled,
         scheduler_poll_interval_seconds=scheduler_poll_interval_seconds,
         task_run_retention_days=max(task_run_retention_days, 1),
+        task_max_concurrent_runs=max(task_max_concurrent_runs, 1),
+        task_notification_url=task_notification_url,
         stt_base_url=stt_base_url.rstrip("/"),
         stt_model=stt_model,
         stt_api_key=stt_api_key,

@@ -21,6 +21,7 @@ from sqlalchemy import or_
 from .auth import auth_required
 from .db import db
 from .models import AppSetting, Project, ScheduledTask, ScheduledTaskRun, TimelineEvent
+from .scheduler import TASK_TYPES, calculate_next_run, next_cron_runs, parse_cron_expression
 from .voice import VoiceError
 
 
@@ -64,9 +65,29 @@ def _task_to_dict(task: ScheduledTask) -> dict:
     return {
         "id": str(task.id),
         "projectId": str(task.project_id),
+        "name": task.name,
+        "description": task.description,
         "instruction": task.instruction,
+        "taskType": task.task_type,
+        "cronExpression": task.cron_expression,
+        "onceRunAt": task.once_run_at.isoformat() if task.once_run_at else None,
         "intervalMinutes": task.interval_minutes,
+        "timezone": task.timezone,
+        "model": task.model,
+        "agent": task.agent,
         "enabled": bool(task.enabled),
+        "startsAt": task.starts_at.isoformat() if task.starts_at else None,
+        "endsAt": task.ends_at.isoformat() if task.ends_at else None,
+        "maxRuns": task.max_runs,
+        "runTimeoutMinutes": task.run_timeout_minutes,
+        "heartbeatEnabled": bool(task.heartbeat_enabled),
+        "goalDefinition": task.goal_definition,
+        "autoDisableOnGoalMet": bool(task.auto_disable_on_goal_met),
+        "retryCount": task.retry_count,
+        "retryBackoffMinutes": task.retry_backoff_minutes,
+        "notificationUrl": task.notification_url,
+        "persistentSessionId": task.persistent_session_id,
+        "totalRuns": task.total_runs,
         "nextRunAt": task.next_run_at.isoformat() if task.next_run_at else None,
         "lastRunAt": task.last_run_at.isoformat() if task.last_run_at else None,
         "lastStatus": task.last_status,
@@ -87,8 +108,44 @@ def _task_run_to_dict(run: ScheduledTaskRun) -> dict:
         "startedAt": run.started_at.isoformat() if run.started_at else None,
         "finishedAt": run.finished_at.isoformat() if run.finished_at else None,
         "heartbeatLoaded": bool(run.heartbeat_loaded),
+        "runNumber": run.run_number,
+        "modelUsed": run.model_used,
+        "agentUsed": run.agent_used,
+        "timeoutUsed": run.timeout_used,
+        "goalAttempted": bool(run.goal_attempted),
+        "goalMet": run.goal_met,
+        "goalOutput": run.goal_output,
+        "retryAttempt": run.retry_attempt,
         "outputPreview": run.output_preview,
         "error": run.error,
+    }
+
+
+def _parse_optional_datetime(value) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        raise ValueError("datetime value must be an ISO string")
+    normalized = value.strip().replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _task_metrics(task: ScheduledTask) -> dict:
+    runs = ScheduledTaskRun.query.filter_by(task_id=task.id).all()
+    completed = [run for run in runs if run.status in {"completed", "goal_met"}]
+    finished = [run for run in runs if run.finished_at and run.started_at]
+    avg_runtime_seconds = None
+    if finished:
+        durations = [(_ensure_utc(run.finished_at) - _ensure_utc(run.started_at)).total_seconds() for run in finished]
+        avg_runtime_seconds = sum(durations) / len(durations)
+    return {
+        "totalRuns": len(runs),
+        "successRate": (len(completed) / len(runs)) if runs else None,
+        "avgRuntimeSeconds": avg_runtime_seconds,
+        "lastOutcomes": [run.status for run in sorted(runs, key=lambda item: item.started_at or _utc_now(), reverse=True)[:10]],
     }
 
 
@@ -1691,9 +1748,14 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         if project is None:
             return jsonify({"error": "Project not found"}), 404
 
-        task = ScheduledTask.query.filter_by(project_id=project_id).first()
+        tasks = (
+            ScheduledTask.query.filter_by(project_id=project_id)
+            .order_by(ScheduledTask.created_at.asc())
+            .all()
+        )
+        task = tasks[0] if tasks else None
         if task is None:
-            return jsonify({"task": None, "runs": []})
+            return jsonify({"task": None, "tasks": [], "runs": []})
 
         runs = (
             ScheduledTaskRun.query.filter_by(task_id=task.id)
@@ -1702,8 +1764,74 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             .all()
         )
         return jsonify(
-            {"task": _task_to_dict(task), "runs": [_task_run_to_dict(r) for r in runs]}
+            {
+                "task": _task_to_dict(task),
+                "tasks": [_task_to_dict(item) for item in tasks],
+                "runs": [_task_run_to_dict(r) for r in runs],
+                "metrics": _task_metrics(task),
+            }
         )
+
+    def _apply_task_payload(task: ScheduledTask, project_id: int, body: dict) -> None:
+        instruction = str(body.get("instruction") or "").strip()
+        if not instruction:
+            raise ValueError("Task instruction is required")
+
+        task_type = str(body.get("taskType") or body.get("task_type") or "interval").strip().lower()
+        if task_type not in TASK_TYPES:
+            raise ValueError("taskType must be interval, cron, once, or goal")
+
+        try:
+            interval_minutes = int(body.get("intervalMinutes") or 15)
+            max_runs = body.get("maxRuns")
+            run_timeout_minutes = body.get("runTimeoutMinutes")
+            retry_count = int(body.get("retryCount") or 0)
+            retry_backoff_minutes = int(body.get("retryBackoffMinutes") or 5)
+        except (TypeError, ValueError):
+            raise ValueError("Numeric task fields are invalid")
+
+        if task_type in {"interval", "goal"} and interval_minutes < 5:
+            raise ValueError("Minimum task interval is 5 minutes")
+
+        cron_expression = str(body.get("cronExpression") or "").strip() or None
+        if task_type == "cron":
+            if not cron_expression:
+                raise ValueError("cronExpression is required for cron tasks")
+            parse_cron_expression(cron_expression)
+
+        once_run_at = _parse_optional_datetime(body.get("onceRunAt"))
+        if task_type == "once" and once_run_at is None:
+            raise ValueError("onceRunAt is required for one-time tasks")
+
+        timezone_name = str(body.get("timezone") or "UTC").strip() or "UTC"
+        if task_type == "cron":
+            next_cron_runs(cron_expression or "* * * * *", timezone_name, _utc_now(), 1)
+
+        task.project_id = project_id
+        task.name = str(body.get("name") or "Scheduled task").strip()[:180]
+        task.description = str(body.get("description") or "").strip() or None
+        task.instruction = instruction
+        task.task_type = task_type
+        task.cron_expression = cron_expression
+        task.once_run_at = once_run_at
+        task.interval_minutes = interval_minutes
+        task.timezone = timezone_name
+        task.model = str(body.get("model") or "").strip() or None
+        task.agent = str(body.get("agent") or "").strip() or None
+        task.enabled = bool(body.get("enabled", True))
+        task.starts_at = _parse_optional_datetime(body.get("startsAt"))
+        task.ends_at = _parse_optional_datetime(body.get("endsAt"))
+        task.max_runs = int(max_runs) if max_runs not in (None, "") else None
+        task.run_timeout_minutes = int(run_timeout_minutes) if run_timeout_minutes not in (None, "") else None
+        task.heartbeat_enabled = bool(body.get("heartbeatEnabled", True))
+        task.goal_definition = str(body.get("goalDefinition") or "").strip() or None
+        task.auto_disable_on_goal_met = bool(body.get("autoDisableOnGoalMet", True))
+        task.retry_count = max(retry_count, 0)
+        task.retry_backoff_minutes = max(retry_backoff_minutes, 1)
+        task.notification_url = str(body.get("notificationUrl") or "").strip() or None
+        task.next_run_at = calculate_next_run(task, _utc_now()) if task.enabled else None
+        task.last_status = "idle" if task.enabled else "disabled"
+        task.last_error = None
 
     @app.put("/api/projects/<int:project_id>/task")
     @auth_required
@@ -1712,47 +1840,28 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         if project is None:
             return jsonify({"error": "Project not found"}), 404
 
-        body = request.get_json(silent=True) or {}
-        instruction = str(body.get("instruction") or "").strip()
-        enabled = bool(body.get("enabled", True))
+        try:
+            body = request.get_json(silent=True) or {}
+            task_id = str(body.get("id") or body.get("taskId") or "").strip()
+            task = ScheduledTask.query.filter_by(id=int(task_id), project_id=project_id).first() if task_id else None
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid task id"}), 400
+
+        now = _utc_now()
+        if task is None:
+            task = ScheduledTask(project_id=project_id, instruction="", interval_minutes=15)
+            db.session.add(task)
 
         try:
-            interval_minutes = int(body.get("intervalMinutes") or 0)
-        except (TypeError, ValueError):
-            return jsonify({"error": "intervalMinutes must be a number"}), 400
-
-        if not instruction:
-            return jsonify({"error": "Task instruction is required"}), 400
-        if interval_minutes < 5:
-            return jsonify({"error": "Minimum task interval is 5 minutes"}), 400
-
-        task = ScheduledTask.query.filter_by(project_id=project_id).first()
-        now = _utc_now()
-        next_run_at = now + timedelta(minutes=interval_minutes) if enabled else None
-        if task is None:
-            task = ScheduledTask(
-                project_id=project_id,
-                instruction=instruction,
-                interval_minutes=interval_minutes,
-                enabled=enabled,
-                next_run_at=next_run_at,
-                last_status="idle",
-            )
-            db.session.add(task)
-        else:
-            task.instruction = instruction
-            task.interval_minutes = interval_minutes
-            task.enabled = enabled
-            task.next_run_at = next_run_at
-            if enabled and task.last_status == "disabled":
-                task.last_status = "idle"
-            if not enabled:
-                task.last_status = "disabled"
+            _apply_task_payload(task, project_id, body)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
         project.has_scheduled_task = True
         project.updated_at = now
         db.session.commit()
-        return jsonify({"task": _task_to_dict(task)})
+        tasks = ScheduledTask.query.filter_by(project_id=project_id).order_by(ScheduledTask.created_at.asc()).all()
+        return jsonify({"task": _task_to_dict(task), "tasks": [_task_to_dict(item) for item in tasks]})
 
     @app.delete("/api/projects/<int:project_id>/task")
     @auth_required
@@ -1761,12 +1870,23 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         if project is None:
             return jsonify({"error": "Project not found"}), 404
 
-        task = ScheduledTask.query.filter_by(project_id=project_id).first()
+        task_id = str(request.args.get("taskId") or "").strip()
+        try:
+            task = (
+                ScheduledTask.query.filter_by(id=int(task_id), project_id=project_id).first()
+                if task_id
+                else ScheduledTask.query.filter_by(project_id=project_id).first()
+            )
+        except ValueError:
+            return jsonify({"error": "Invalid task id"}), 400
         if task is None:
             return jsonify({"ok": True, "deleted": False})
 
         db.session.delete(task)
-        project.has_scheduled_task = False
+        project.has_scheduled_task = ScheduledTask.query.filter(
+            ScheduledTask.project_id == project_id,
+            ScheduledTask.id != task.id,
+        ).first() is not None
         db.session.commit()
         return jsonify({"ok": True, "deleted": True})
 
@@ -1777,7 +1897,16 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         if project is None:
             return jsonify({"error": "Project not found"}), 404
 
-        task = ScheduledTask.query.filter_by(project_id=project_id).first()
+        body = request.get_json(silent=True) or {}
+        task_id = str(body.get("taskId") or request.args.get("taskId") or "").strip()
+        try:
+            task = (
+                ScheduledTask.query.filter_by(id=int(task_id), project_id=project_id).first()
+                if task_id
+                else ScheduledTask.query.filter_by(project_id=project_id).first()
+            )
+        except ValueError:
+            return jsonify({"error": "Invalid task id"}), 400
         if task is None:
             return jsonify({"error": "Scheduled task not configured"}), 404
 
@@ -1787,7 +1916,7 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             db.session.refresh(task)
             if run is None:
                 return jsonify({"error": "Task run not found after execution"}), 500
-            return jsonify({"task": _task_to_dict(task), "run": _task_run_to_dict(run)})
+            return jsonify({"task": _task_to_dict(task), "run": _task_run_to_dict(run), "metrics": _task_metrics(task)})
         except Exception as exc:
             return jsonify({"error": f"Failed to run task: {exc}"}), 502
 
@@ -1798,22 +1927,82 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         if project is None:
             return jsonify({"error": "Project not found"}), 404
 
-        task = ScheduledTask.query.filter_by(project_id=project_id).first()
-        if task is None:
-            return jsonify({"runs": []})
-
         try:
             limit = min(max(int(request.args.get("limit", "20")), 1), 100)
         except ValueError:
             return jsonify({"error": "Invalid limit"}), 400
 
+        task_id = str(request.args.get("taskId") or "").strip()
+        query = ScheduledTaskRun.query.filter_by(project_id=project_id)
+        if task_id:
+            try:
+                query = query.filter_by(task_id=int(task_id))
+            except ValueError:
+                return jsonify({"error": "Invalid task id"}), 400
         runs = (
-            ScheduledTaskRun.query.filter_by(task_id=task.id)
+            query
             .order_by(ScheduledTaskRun.started_at.desc())
             .limit(limit)
             .all()
         )
         return jsonify({"runs": [_task_run_to_dict(run) for run in runs]})
+
+    @app.get("/api/projects/<int:project_id>/tasks")
+    @auth_required
+    def list_project_tasks(project_id: int):
+        project = Project.query.get(project_id)
+        if project is None:
+            return jsonify({"error": "Project not found"}), 404
+        tasks = ScheduledTask.query.filter_by(project_id=project_id).order_by(ScheduledTask.created_at.asc()).all()
+        return jsonify({"tasks": [_task_to_dict(task) for task in tasks]})
+
+    @app.post("/api/projects/<int:project_id>/tasks/<int:task_id>/pause")
+    @auth_required
+    def pause_project_task(project_id: int, task_id: int):
+        task = ScheduledTask.query.filter_by(project_id=project_id, id=task_id).first()
+        if task is None:
+            return jsonify({"error": "Scheduled task not found"}), 404
+        task.enabled = False
+        task.last_status = "paused"
+        db.session.commit()
+        return jsonify({"task": _task_to_dict(task)})
+
+    @app.post("/api/projects/<int:project_id>/tasks/<int:task_id>/resume")
+    @auth_required
+    def resume_project_task(project_id: int, task_id: int):
+        task = ScheduledTask.query.filter_by(project_id=project_id, id=task_id).first()
+        if task is None:
+            return jsonify({"error": "Scheduled task not found"}), 404
+        task.enabled = True
+        task.next_run_at = task.next_run_at or calculate_next_run(task, _utc_now())
+        task.last_status = "idle"
+        db.session.commit()
+        return jsonify({"task": _task_to_dict(task)})
+
+    @app.post("/api/projects/<int:project_id>/tasks/preview")
+    @auth_required
+    def preview_project_task_schedule(project_id: int):
+        if Project.query.get(project_id) is None:
+            return jsonify({"error": "Project not found"}), 404
+        body = request.get_json(silent=True) or {}
+        task_type = str(body.get("taskType") or "interval").strip().lower()
+        timezone_name = str(body.get("timezone") or "UTC").strip() or "UTC"
+        try:
+            if task_type == "cron":
+                runs = next_cron_runs(str(body.get("cronExpression") or ""), timezone_name, _utc_now(), 5)
+            elif task_type == "once":
+                run_at = _parse_optional_datetime(body.get("onceRunAt"))
+                runs = [run_at] if run_at else []
+            else:
+                interval = max(int(body.get("intervalMinutes") or 15), 1)
+                cursor = _utc_now()
+                runs = []
+                for _ in range(5):
+                    cursor = cursor + timedelta(minutes=interval)
+                    runs.append(cursor)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"runs": [run.isoformat() for run in runs if run is not None]})
 
     @app.post("/api/projects/<int:project_id>/session/ensure")
     @auth_required

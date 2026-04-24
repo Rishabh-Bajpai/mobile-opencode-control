@@ -4,6 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from flask import Flask
 from flask_cors import CORS
+from sqlalchemy import inspect, text
 
 from .auth import register_auth_routes
 from .config import load_settings
@@ -13,6 +14,39 @@ from .opencode import OpenCodeClient
 from .routes import register_api_routes
 from .scheduler import TaskScheduler
 from .voice import BuiltinVoiceRuntime
+
+
+def _ensure_scheduler_schema(app: Flask) -> None:
+    inspector = inspect(db.engine)
+    table_names = set(inspector.get_table_names())
+    if "scheduled_tasks" not in table_names:
+        db.create_all()
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("scheduled_tasks")}
+    needs_rebuild = "name" not in columns
+
+    # SQLite cannot drop the existing project_id unique constraint in-place.
+    unique_project_index = False
+    for index in inspector.get_indexes("scheduled_tasks"):
+        if index.get("unique") and index.get("column_names") == ["project_id"]:
+            unique_project_index = True
+            break
+
+    if not unique_project_index:
+        for constraint in inspector.get_unique_constraints("scheduled_tasks"):
+            if constraint.get("column_names") == ["project_id"]:
+                unique_project_index = True
+                break
+
+    needs_rebuild = needs_rebuild or unique_project_index
+    if not needs_rebuild:
+        return
+
+    with db.engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS scheduled_task_runs"))
+        connection.execute(text("DROP TABLE IF EXISTS scheduled_tasks"))
+    db.create_all()
 
 
 def create_app() -> Flask:
@@ -51,6 +85,7 @@ def create_app() -> Flask:
         backend_data_dir = root_dir / "backend" / "data"
         backend_data_dir.mkdir(parents=True, exist_ok=True)
         db.create_all()
+        _ensure_scheduler_schema(app)
         _ = Project
         _ = AppSetting
         _ = ScheduledTask
@@ -68,6 +103,8 @@ def create_app() -> Flask:
         opencode_client=opencode_client,
         poll_interval_seconds=settings.scheduler_poll_interval_seconds,
         task_run_retention_days=settings.task_run_retention_days,
+        max_concurrent_runs=settings.task_max_concurrent_runs,
+        notification_url=settings.task_notification_url,
     )
     scheduler.start()
 
