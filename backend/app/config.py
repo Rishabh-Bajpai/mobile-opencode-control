@@ -89,6 +89,20 @@ def load_settings() -> Settings:
     parsed_frontend = urlparse(frontend_origins[0])
     frontend_port = parsed_frontend.port or 5173
 
+    if app_env == "production":
+        invalid_secret_key = secret_key.strip() in {"", "change-me-in-production"}
+        invalid_app_password = app_password.strip() in {"", "opencode"}
+        if invalid_secret_key or invalid_app_password:
+            missing = []
+            if invalid_secret_key:
+                missing.append("APP_SECRET_KEY")
+            if invalid_app_password:
+                missing.append("APP_PASSWORD")
+            raise ValueError(
+                "Production configuration requires explicit secure values for "
+                + ", ".join(missing)
+            )
+
     return Settings(
         app_env=app_env,
         secret_key=secret_key,

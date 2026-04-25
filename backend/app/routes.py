@@ -616,7 +616,7 @@ def _extract_json_event_payload(event_lines: list[str]) -> dict | None:
 
 def _find_permission_id(value) -> str | None:
     if isinstance(value, str):
-        return None
+        return value.strip() or None
 
     if isinstance(value, list):
         for item in value:

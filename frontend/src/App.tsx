@@ -2682,6 +2682,7 @@ function ScheduledTaskPanel({
   onPreview: () => Promise<void>;
 }) {
   const taskTone = task ? taskStatusTone(task.lastStatus) : "idle";
+  const visibleRuns = task ? runs.filter((run) => run.taskId === task.id) : runs;
 
   return (
     <details className="task-panel">
@@ -2856,11 +2857,11 @@ function ScheduledTaskPanel({
 
         <div className="task-runs">
           <strong>Recent runs</strong>
-          {runs.length === 0 ? (
+          {visibleRuns.length === 0 ? (
             <p className="task-muted">No runs yet.</p>
           ) : (
             <ul>
-              {runs.slice(0, 8).map((run) => (
+              {visibleRuns.slice(0, 8).map((run) => (
                 <li key={run.id} className={`task-run-item ${taskStatusTone(run.status)}`}>
                   <div className="task-run-item-main">
                     <strong>#{run.runNumber} {run.trigger === "manual" ? "Manual run" : "Scheduled run"}</strong>
@@ -3730,6 +3731,12 @@ export function App() {
       if (!run) {
         continue;
       }
+      if (!activeSessionId || run.sessionId !== activeSessionId) {
+        continue;
+      }
+      if (scheduledTask && run.taskId !== scheduledTask.id) {
+        continue;
+      }
       runEntries.push({
         kind: "task_run",
         id: `t-${event.id}`,
@@ -3746,7 +3753,7 @@ export function App() {
     return [...messageEntries, ...runEntries].sort(
       (a, b) => toMillis(a.createdAt) - toMillis(b.createdAt)
     );
-  }, [messages, taskTimelineEvents]);
+  }, [activeSessionId, messages, scheduledTask, taskTimelineEvents]);
   const effectiveTimelineEntries = useMemo<TimelineEntry[]>(() => {
     if (fixtureMode === "task-run-success" || fixtureMode === "task-run-error") {
       const now = new Date();
