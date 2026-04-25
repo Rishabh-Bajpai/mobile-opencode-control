@@ -2685,204 +2685,263 @@ function ScheduledTaskPanel({
   const visibleRuns = task ? runs.filter((run) => run.taskId === task.id) : runs;
 
   return (
-    <details className="task-panel">
-      <summary>
-        Scheduled task {task ? "configured" : "not configured"}
-        {task ? ` (${task.lastStatus})` : ""}
-      </summary>
-      <div className="task-panel-content">
-        {loading ? <p className="task-muted">Loading task...</p> : null}
-        {error ? <p className="error">{error}</p> : null}
-
-        {task ? (
-          <div className="task-overview">
-            <span className={`task-status-badge ${taskTone}`}>{task.enabled ? "Enabled" : "Paused"}</span>
-            <span className={`task-status-badge ${taskTone}`}>Last {task.lastStatus.toLowerCase()}</span>
-            <span className="task-status-badge idle">Next {formatRelativeTaskTime(task.nextRunAt)}</span>
-            <span className="task-status-badge idle">Last run {formatRelativeTaskTime(task.lastRunAt)}</span>
-          </div>
-        ) : null}
-
-        <div className="task-actions">
-          <button type="button" className="secondary-button" onClick={onNewTask}>New task</button>
-          {tasks.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={task?.id === item.id ? "secondary-button active" : "secondary-button"}
-              onClick={() => onSelectTask(item)}
-            >
-              {item.name || `Task ${item.id}`}
+    <section className="tasks-workspace">
+      <div className="tasks-shell">
+        <aside className="tasks-browser">
+          <div className="tasks-browser-head">
+            <div>
+              <p className="tasks-kicker">Automation Deck</p>
+              <h2>Tasks</h2>
+              <small>Review older jobs, reopen them, or draft a fresh one.</small>
+            </div>
+            <button type="button" className="secondary-button" onClick={onNewTask}>
+              New task
             </button>
-          ))}
-        </div>
-
-        <div className="task-inline-fields">
-          <label>
-            <span>Name</span>
-            <input value={name} onChange={(event) => onNameChange(event.target.value)} />
-          </label>
-          <label>
-            <span>Type</span>
-            <select value={taskType} onChange={(event) => onTaskTypeChange(event.target.value as ScheduledTask["taskType"])}>
-              <option value="interval">Interval</option>
-              <option value="cron">Cron</option>
-              <option value="once">One-time</option>
-              <option value="goal">Goal</option>
-            </select>
-          </label>
-        </div>
-
-        <label>
-          <span>Description</span>
-          <input value={description} onChange={(event) => onDescriptionChange(event.target.value)} placeholder="Optional notes" />
-        </label>
-
-        <label>
-          <span>Instruction</span>
-          <textarea
-            value={instruction}
-            onChange={(event) => onInstructionChange(event.target.value)}
-            placeholder="Instruction to run in dedicated task session"
-          />
-        </label>
-
-        <div className="task-inline-fields">
-          {taskType === "interval" || taskType === "goal" ? <label>
-            <span>Interval (minutes)</span>
-            <input
-              type="number"
-              min={5}
-              value={intervalMinutes}
-              onChange={(event) => onIntervalChange(Number(event.target.value) || 5)}
-            />
-          </label> : null}
-          {taskType === "cron" ? <label>
-            <span>Cron expression</span>
-            <input value={cronExpression} onChange={(event) => onCronExpressionChange(event.target.value)} placeholder="0 9 * * *" />
-          </label> : null}
-          {taskType === "once" ? <label>
-            <span>Run once at</span>
-            <input type="datetime-local" value={onceRunAt} onChange={(event) => onOnceRunAtChange(event.target.value)} />
-          </label> : null}
-          <label>
-            <span>Timezone</span>
-            <input value={timezone} onChange={(event) => onTimezoneChange(event.target.value)} placeholder="UTC" />
-          </label>
-        </div>
-
-        <div className="task-inline-fields">
-          <label>
-            <span>Model</span>
-            <select value={model} onChange={(event) => onModelChange(event.target.value)}>
-              <option value="">Server default</option>
-              {runtimeModels.map((item) => <option key={item.id} value={item.id}>{item.providerName} / {item.name}</option>)}
-            </select>
-          </label>
-          <label>
-            <span>Agent</span>
-            <select value={agent} onChange={(event) => onAgentChange(event.target.value)}>
-              <option value="">Server default</option>
-              {runtimeAgents.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}
-            </select>
-          </label>
-        </div>
-
-        <div className="task-inline-fields">
-          <label>
-            <span>Max runs</span>
-            <input type="number" min={0} value={maxRuns} onChange={(event) => onMaxRunsChange(event.target.value)} placeholder="unlimited" />
-          </label>
-          <label>
-            <span>Timeout minutes</span>
-            <input type="number" min={1} value={runTimeoutMinutes} onChange={(event) => onRunTimeoutMinutesChange(event.target.value)} placeholder="none" />
-          </label>
-          <label className="task-enabled">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(event) => onEnabledChange(event.target.checked)}
-            />
-            <span>Enabled</span>
-          </label>
-          <label className="task-enabled">
-            <input type="checkbox" checked={heartbeatEnabled} onChange={(event) => onHeartbeatEnabledChange(event.target.checked)} />
-            <span>Use heartbeat</span>
-          </label>
-        </div>
-
-        {taskType === "goal" ? <label>
-          <span>Goal definition</span>
-          <textarea value={goalDefinition} onChange={(event) => onGoalDefinitionChange(event.target.value)} placeholder="Describe the objective. The agent will report GOAL_MET: yes/no." />
-        </label> : null}
-
-        <label>
-          <span>Notification URL</span>
-          <input value={notificationUrl} onChange={(event) => onNotificationUrlChange(event.target.value)} placeholder="Optional ntfy topic URL" />
-        </label>
-
-        <div className="task-actions">
-          <button type="button" className="secondary-button" onClick={() => void onPreview()}>
-            Preview next runs
-          </button>
-          {previewRuns.map((run) => <small key={run} className="task-status-badge idle">{new Date(run).toLocaleString()}</small>)}
-        </div>
-
-        <div className="task-actions">
-          <button type="button" disabled={saving} onClick={() => void onSave()}>
-            {saving ? "Saving..." : "Save task"}
-          </button>
-          <button type="button" disabled={running || !task} onClick={() => void onRunNow()}>
-            {running ? "Running..." : "Run now"}
-          </button>
-          <button type="button" disabled={saving || !task} onClick={() => void onPauseResume()}>
-            {task?.enabled ? "Pause" : "Resume"}
-          </button>
-          <button
-            type="button"
-            className="danger"
-            disabled={deleting || !task}
-            onClick={() => void onDelete()}
-          >
-            {deleting ? "Deleting..." : "Delete"}
-          </button>
-        </div>
-
-        {task ? (
-          <div className="task-status-meta">
-            <small>next: {task.nextRunAt ? new Date(task.nextRunAt).toLocaleString() : "-"}</small>
-            <small>last: {task.lastRunAt ? new Date(task.lastRunAt).toLocaleString() : "-"}</small>
           </div>
-        ) : null}
 
-        <div className="task-runs">
-          <strong>Recent runs</strong>
-          {visibleRuns.length === 0 ? (
-            <p className="task-muted">No runs yet.</p>
-          ) : (
-            <ul>
-              {visibleRuns.slice(0, 8).map((run) => (
-                <li key={run.id} className={`task-run-item ${taskStatusTone(run.status)}`}>
-                  <div className="task-run-item-main">
-                    <strong>#{run.runNumber} {run.trigger === "manual" ? "Manual run" : "Scheduled run"}</strong>
-                    <small>{run.startedAt ? new Date(run.startedAt).toLocaleString() : "Unknown time"}</small>
-                  </div>
-                  <div className="task-run-item-meta">
-                    <span className={`task-status-badge ${taskStatusTone(run.status)}`}>{run.status}</span>
-                    <span className="task-status-badge idle">{run.heartbeatLoaded ? "heartbeat loaded" : "heartbeat missing"}</span>
-                    {run.modelUsed ? <span className="task-status-badge idle">{run.modelUsed}</span> : null}
-                    {run.agentUsed ? <span className="task-status-badge idle">{run.agentUsed}</span> : null}
-                    {run.goalAttempted ? <span className="task-status-badge idle">goal {run.goalMet ? "met" : "open"}</span> : null}
-                  </div>
-                  {run.outputPreview ? <p>{run.outputPreview}</p> : null}
-                  {run.error ? <p className="task-error-inline">{run.error}</p> : null}
-                </li>
-              ))}
-            </ul>
-          )}
+          {loading ? <p className="task-muted">Loading tasks...</p> : null}
+          {error ? <p className="error">{error}</p> : null}
+
+          <div className="tasks-browser-list">
+            {tasks.length === 0 ? (
+              <div className="tasks-browser-empty">
+                <strong>No saved tasks yet</strong>
+                <p>Start with a new task and it will appear here for later edits.</p>
+              </div>
+            ) : (
+              tasks.map((item) => {
+                const itemRuns = runs.filter((run) => run.taskId === item.id);
+                const latestRun = itemRuns[0] ?? null;
+                const tone = taskStatusTone(item.lastStatus);
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`task-browser-item ${task?.id === item.id ? "active" : ""}`}
+                    onClick={() => onSelectTask(item)}
+                  >
+                    <div className="task-browser-item-top">
+                      <strong>{item.name || `Task ${item.id}`}</strong>
+                      <span className={`task-status-badge ${tone}`}>{item.lastStatus}</span>
+                    </div>
+                    <p>{item.description || item.instruction || "No description"}</p>
+                    <div className="task-browser-item-meta">
+                      <span>{item.taskType}</span>
+                      <span>{item.enabled ? "enabled" : "paused"}</span>
+                      <span>{item.nextRunAt ? `next ${formatRelativeTaskTime(item.nextRunAt)}` : "no next run"}</span>
+                    </div>
+                    {latestRun ? (
+                      <small>
+                        Latest run {latestRun.startedAt ? new Date(latestRun.startedAt).toLocaleString() : "Unknown time"}
+                      </small>
+                    ) : (
+                      <small>No runs yet</small>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </aside>
+
+        <div className="tasks-editor">
+          <div className="tasks-editor-head">
+            <div>
+              <p className="tasks-kicker">{task ? "Editing task" : "Drafting task"}</p>
+              <h3>{task ? task.name || `Task ${task.id}` : "New scheduled task"}</h3>
+              <small>Tasks run in dedicated task sessions. Previous tasks stay editable here.</small>
+            </div>
+            {task ? (
+              <div className="task-overview">
+                <span className={`task-status-badge ${taskTone}`}>{task.enabled ? "Enabled" : "Paused"}</span>
+                <span className={`task-status-badge ${taskTone}`}>Last {task.lastStatus.toLowerCase()}</span>
+                <span className="task-status-badge idle">Next {formatRelativeTaskTime(task.nextRunAt)}</span>
+                <span className="task-status-badge idle">Last run {formatRelativeTaskTime(task.lastRunAt)}</span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="tasks-editor-grid">
+            <div className="tasks-editor-card">
+              <div className="task-inline-fields">
+                <label>
+                  <span>Name</span>
+                  <input value={name} onChange={(event) => onNameChange(event.target.value)} />
+                </label>
+                <label>
+                  <span>Type</span>
+                  <select value={taskType} onChange={(event) => onTaskTypeChange(event.target.value as ScheduledTask["taskType"])}>
+                    <option value="interval">Interval</option>
+                    <option value="cron">Cron</option>
+                    <option value="once">One-time</option>
+                    <option value="goal">Goal</option>
+                  </select>
+                </label>
+              </div>
+
+              <label>
+                <span>Description</span>
+                <input value={description} onChange={(event) => onDescriptionChange(event.target.value)} placeholder="Optional notes" />
+              </label>
+
+              <label>
+                <span>Instruction</span>
+                <textarea
+                  value={instruction}
+                  onChange={(event) => onInstructionChange(event.target.value)}
+                  placeholder="Instruction to run in dedicated task session"
+                />
+              </label>
+
+              <div className="task-inline-fields">
+                {taskType === "interval" || taskType === "goal" ? <label>
+                  <span>Interval (minutes)</span>
+                  <input
+                    type="number"
+                    min={5}
+                    value={intervalMinutes}
+                    onChange={(event) => onIntervalChange(Number(event.target.value) || 5)}
+                  />
+                </label> : null}
+                {taskType === "cron" ? <label>
+                  <span>Cron expression</span>
+                  <input value={cronExpression} onChange={(event) => onCronExpressionChange(event.target.value)} placeholder="0 9 * * *" />
+                </label> : null}
+                {taskType === "once" ? <label>
+                  <span>Run once at</span>
+                  <input type="datetime-local" value={onceRunAt} onChange={(event) => onOnceRunAtChange(event.target.value)} />
+                </label> : null}
+                <label>
+                  <span>Timezone</span>
+                  <input value={timezone} onChange={(event) => onTimezoneChange(event.target.value)} placeholder="UTC" />
+                </label>
+              </div>
+
+              <div className="task-inline-fields">
+                <label>
+                  <span>Model</span>
+                  <select value={model} onChange={(event) => onModelChange(event.target.value)}>
+                    <option value="">Server default</option>
+                    {runtimeModels.map((item) => <option key={item.id} value={item.id}>{item.providerName} / {item.name}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Agent</span>
+                  <select value={agent} onChange={(event) => onAgentChange(event.target.value)}>
+                    <option value="">Server default</option>
+                    {runtimeAgents.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              <div className="task-inline-fields">
+                <label>
+                  <span>Max runs</span>
+                  <input type="number" min={0} value={maxRuns} onChange={(event) => onMaxRunsChange(event.target.value)} placeholder="unlimited" />
+                </label>
+                <label>
+                  <span>Timeout minutes</span>
+                  <input type="number" min={1} value={runTimeoutMinutes} onChange={(event) => onRunTimeoutMinutesChange(event.target.value)} placeholder="none" />
+                </label>
+                <label className="task-enabled">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(event) => onEnabledChange(event.target.checked)}
+                  />
+                  <span>Enabled</span>
+                </label>
+                <label className="task-enabled">
+                  <input type="checkbox" checked={heartbeatEnabled} onChange={(event) => onHeartbeatEnabledChange(event.target.checked)} />
+                  <span>Use heartbeat</span>
+                </label>
+              </div>
+
+              {taskType === "goal" ? <label>
+                <span>Goal definition</span>
+                <textarea value={goalDefinition} onChange={(event) => onGoalDefinitionChange(event.target.value)} placeholder="Describe the objective. The agent will report GOAL_MET: yes/no." />
+              </label> : null}
+
+              <label>
+                <span>Notification URL</span>
+                <input value={notificationUrl} onChange={(event) => onNotificationUrlChange(event.target.value)} placeholder="Optional ntfy topic URL" />
+              </label>
+
+              <div className="task-actions">
+                <button type="button" className="secondary-button" onClick={() => void onPreview()}>
+                  Preview next runs
+                </button>
+                <button type="button" disabled={saving} onClick={() => void onSave()}>
+                  {saving ? "Saving..." : "Save task"}
+                </button>
+                <button type="button" disabled={running || !task} onClick={() => void onRunNow()}>
+                  {running ? "Running..." : "Run now"}
+                </button>
+                <button type="button" disabled={saving || !task} onClick={() => void onPauseResume()}>
+                  {task?.enabled ? "Pause" : "Resume"}
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={deleting || !task}
+                  onClick={() => void onDelete()}
+                >
+                  {deleting ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+
+              {previewRuns.length > 0 ? (
+                <div className="task-preview-strip">
+                  {previewRuns.map((run) => <small key={run} className="task-status-badge idle">{new Date(run).toLocaleString()}</small>)}
+                </div>
+              ) : null}
+
+              {task ? (
+                <div className="task-status-meta">
+                  <small>next: {task.nextRunAt ? new Date(task.nextRunAt).toLocaleString() : "-"}</small>
+                  <small>last: {task.lastRunAt ? new Date(task.lastRunAt).toLocaleString() : "-"}</small>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="tasks-editor-card tasks-runs-card">
+              <div className="tasks-runs-head">
+                <div>
+                  <strong>Recent runs</strong>
+                  <small>Execution history for the selected task only.</small>
+                </div>
+              </div>
+              <div className="task-runs">
+                {visibleRuns.length === 0 ? (
+                  <p className="task-muted">No runs yet.</p>
+                ) : (
+                  <ul>
+                    {visibleRuns.slice(0, 12).map((run) => (
+                      <li key={run.id} className={`task-run-item ${taskStatusTone(run.status)}`}>
+                        <div className="task-run-item-main">
+                          <strong>#{run.runNumber} {run.trigger === "manual" ? "Manual run" : "Scheduled run"}</strong>
+                          <small>{run.startedAt ? new Date(run.startedAt).toLocaleString() : "Unknown time"}</small>
+                        </div>
+                        <div className="task-run-item-meta">
+                          <span className={`task-status-badge ${taskStatusTone(run.status)}`}>{run.status}</span>
+                          <span className="task-status-badge idle">{run.heartbeatLoaded ? "heartbeat loaded" : "heartbeat missing"}</span>
+                          {run.modelUsed ? <span className="task-status-badge idle">{run.modelUsed}</span> : null}
+                          {run.agentUsed ? <span className="task-status-badge idle">{run.agentUsed}</span> : null}
+                          {run.goalAttempted ? <span className="task-status-badge idle">goal {run.goalMet ? "met" : "open"}</span> : null}
+                        </div>
+                        {run.outputPreview ? <p>{run.outputPreview}</p> : null}
+                        {run.error ? <p className="task-error-inline">{run.error}</p> : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </details>
+    </section>
   );
 }
 
@@ -3123,7 +3182,7 @@ export function App() {
   });
   const [desktopProjectControlsCollapsed, setDesktopProjectControlsCollapsed] = useState(true);
   const [desktopChatToolbarCollapsed, setDesktopChatToolbarCollapsed] = useState(true);
-  const [activeMainView, setActiveMainView] = useState<"chat" | "files">("chat");
+  const [activeMainView, setActiveMainView] = useState<"chat" | "files" | "tasks">("chat");
   const [mobileProjectListOpen, setMobileProjectListOpen] = useState(false);
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileNewProjectOpen, setMobileNewProjectOpen] = useState(false);
@@ -6328,6 +6387,15 @@ export function App() {
                 >
                   Files
                 </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeMainView === "tasks"}
+                  className={activeMainView === "tasks" ? "active" : ""}
+                  onClick={() => setActiveMainView("tasks")}
+                >
+                  Tasks
+                </button>
               </div>
             ) : null}
             {!isMobileViewport ? (
@@ -6361,7 +6429,7 @@ export function App() {
             <div className="chat-toolbar-head">
               <div>
                 <strong>Workspace controls</strong>
-                <span>Runtime, install options, and task scheduling</span>
+                <span>Runtime, install options, and notifications</span>
               </div>
               <button
                 type="button"
@@ -6374,63 +6442,6 @@ export function App() {
             </div>
             <div className={`chat-toolbar-content ${desktopChatToolbarCollapsed ? "collapsed" : ""}`}>
               <div className="chat-toolbar-grid">
-                <div className="toolbar-card scheduler-card scheduler-card-desktop">
-                  <ScheduledTaskPanel
-                    loading={taskLoading}
-                    saving={taskSaving}
-                    running={taskRunning}
-                    deleting={taskDeleting}
-                    error={taskError}
-                    name={taskNameInput}
-                    description={taskDescriptionInput}
-                    instruction={taskInstructionInput}
-                    taskType={taskTypeInput}
-                    intervalMinutes={taskIntervalInput}
-                    cronExpression={taskCronInput}
-                    onceRunAt={taskOnceInput}
-                    timezone={taskTimezoneInput}
-                    model={taskModelInput}
-                    agent={taskAgentInput}
-                    maxRuns={taskMaxRunsInput}
-                    runTimeoutMinutes={taskTimeoutInput}
-                    heartbeatEnabled={taskHeartbeatInput}
-                    goalDefinition={taskGoalInput}
-                    notificationUrl={taskNotificationUrlInput}
-                    enabled={taskEnabledInput}
-                    task={scheduledTask}
-                    tasks={scheduledTasks}
-                    runs={scheduledRuns}
-                    previewRuns={taskPreviewRuns}
-                    runtimeModels={runtimeModels}
-                    runtimeAgents={runtimeAgents}
-                    onNewTask={resetTaskForm}
-                    onSelectTask={(task) => {
-                      void handleSelectTask(task);
-                    }}
-                    onNameChange={setTaskNameInput}
-                    onDescriptionChange={setTaskDescriptionInput}
-                    onTaskTypeChange={setTaskTypeInput}
-                    onInstructionChange={setTaskInstructionInput}
-                    onIntervalChange={setTaskIntervalInput}
-                    onCronExpressionChange={setTaskCronInput}
-                    onOnceRunAtChange={setTaskOnceInput}
-                    onTimezoneChange={setTaskTimezoneInput}
-                    onModelChange={setTaskModelInput}
-                    onAgentChange={setTaskAgentInput}
-                    onMaxRunsChange={setTaskMaxRunsInput}
-                    onRunTimeoutMinutesChange={setTaskTimeoutInput}
-                    onHeartbeatEnabledChange={setTaskHeartbeatInput}
-                    onGoalDefinitionChange={setTaskGoalInput}
-                    onNotificationUrlChange={setTaskNotificationUrlInput}
-                    onEnabledChange={setTaskEnabledInput}
-                    onSave={handleSaveTask}
-                    onRunNow={handleRunTaskNow}
-                    onDelete={handleDeleteTask}
-                    onPauseResume={handlePauseResumeTask}
-                    onPreview={handlePreviewTaskSchedule}
-                  />
-                </div>
-
                 <div className="toolbar-card runtime-card">
                   <div className="toolbar-card-head">
                     <strong>Runtime</strong>
@@ -6703,6 +6714,70 @@ export function App() {
             </button>
           ) : null}
         </section>
+        ) : activeMainView === "tasks" ? (
+          <section className="tasks-main-view">
+            {activeProject ? (
+              <ScheduledTaskPanel
+                loading={taskLoading}
+                saving={taskSaving}
+                running={taskRunning}
+                deleting={taskDeleting}
+                error={taskError}
+                name={taskNameInput}
+                description={taskDescriptionInput}
+                instruction={taskInstructionInput}
+                taskType={taskTypeInput}
+                intervalMinutes={taskIntervalInput}
+                cronExpression={taskCronInput}
+                onceRunAt={taskOnceInput}
+                timezone={taskTimezoneInput}
+                model={taskModelInput}
+                agent={taskAgentInput}
+                maxRuns={taskMaxRunsInput}
+                runTimeoutMinutes={taskTimeoutInput}
+                heartbeatEnabled={taskHeartbeatInput}
+                goalDefinition={taskGoalInput}
+                notificationUrl={taskNotificationUrlInput}
+                enabled={taskEnabledInput}
+                task={scheduledTask}
+                tasks={scheduledTasks}
+                runs={scheduledRuns}
+                previewRuns={taskPreviewRuns}
+                runtimeModels={runtimeModels}
+                runtimeAgents={runtimeAgents}
+                onNewTask={resetTaskForm}
+                onSelectTask={(task) => {
+                  void handleSelectTask(task);
+                }}
+                onNameChange={setTaskNameInput}
+                onDescriptionChange={setTaskDescriptionInput}
+                onTaskTypeChange={setTaskTypeInput}
+                onInstructionChange={setTaskInstructionInput}
+                onIntervalChange={setTaskIntervalInput}
+                onCronExpressionChange={setTaskCronInput}
+                onOnceRunAtChange={setTaskOnceInput}
+                onTimezoneChange={setTaskTimezoneInput}
+                onModelChange={setTaskModelInput}
+                onAgentChange={setTaskAgentInput}
+                onMaxRunsChange={setTaskMaxRunsInput}
+                onRunTimeoutMinutesChange={setTaskTimeoutInput}
+                onHeartbeatEnabledChange={setTaskHeartbeatInput}
+                onGoalDefinitionChange={setTaskGoalInput}
+                onNotificationUrlChange={setTaskNotificationUrlInput}
+                onEnabledChange={setTaskEnabledInput}
+                onSave={handleSaveTask}
+                onRunNow={handleRunTaskNow}
+                onDelete={handleDeleteTask}
+                onPauseResume={handlePauseResumeTask}
+                onPreview={handlePreviewTaskSchedule}
+              />
+            ) : (
+              <ChatStateCard
+                title="No project selected"
+                detail="Pick a project to manage its scheduled tasks."
+              />
+            )}
+          </section>
         ) : (
           <section className="files-workspace">
             {activeProject ? (
@@ -6791,60 +6866,6 @@ export function App() {
                   }}
                   />
                 </div>
-              <ScheduledTaskPanel
-                loading={taskLoading}
-                saving={taskSaving}
-                running={taskRunning}
-                deleting={taskDeleting}
-                error={taskError}
-                name={taskNameInput}
-                description={taskDescriptionInput}
-                instruction={taskInstructionInput}
-                taskType={taskTypeInput}
-                intervalMinutes={taskIntervalInput}
-                cronExpression={taskCronInput}
-                onceRunAt={taskOnceInput}
-                timezone={taskTimezoneInput}
-                model={taskModelInput}
-                agent={taskAgentInput}
-                maxRuns={taskMaxRunsInput}
-                runTimeoutMinutes={taskTimeoutInput}
-                heartbeatEnabled={taskHeartbeatInput}
-                goalDefinition={taskGoalInput}
-                notificationUrl={taskNotificationUrlInput}
-                enabled={taskEnabledInput}
-                task={scheduledTask}
-                tasks={scheduledTasks}
-                runs={scheduledRuns}
-                previewRuns={taskPreviewRuns}
-                runtimeModels={runtimeModels}
-                runtimeAgents={runtimeAgents}
-                onNewTask={resetTaskForm}
-                onSelectTask={(task) => {
-                  void handleSelectTask(task);
-                }}
-                onNameChange={setTaskNameInput}
-                onDescriptionChange={setTaskDescriptionInput}
-                onTaskTypeChange={setTaskTypeInput}
-                onInstructionChange={setTaskInstructionInput}
-                onIntervalChange={setTaskIntervalInput}
-                onCronExpressionChange={setTaskCronInput}
-                onOnceRunAtChange={setTaskOnceInput}
-                onTimezoneChange={setTaskTimezoneInput}
-                onModelChange={setTaskModelInput}
-                onAgentChange={setTaskAgentInput}
-                onMaxRunsChange={setTaskMaxRunsInput}
-                onRunTimeoutMinutesChange={setTaskTimeoutInput}
-                onHeartbeatEnabledChange={setTaskHeartbeatInput}
-                onGoalDefinitionChange={setTaskGoalInput}
-                onNotificationUrlChange={setTaskNotificationUrlInput}
-                onEnabledChange={setTaskEnabledInput}
-                onSave={handleSaveTask}
-                onRunNow={handleRunTaskNow}
-                onDelete={handleDeleteTask}
-                onPauseResume={handlePauseResumeTask}
-                onPreview={handlePreviewTaskSchedule}
-              />
               <div className="toolbar-card notifications-card">
                 <NotificationControls
                   supported={notificationPermission !== "unsupported"}
