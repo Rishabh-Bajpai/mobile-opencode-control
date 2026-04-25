@@ -3019,12 +3019,18 @@ input {
   }
 
   .main-view-toggle {
-    order: 3;
-    flex: 1 0 100%;
-    width: 100%;
     justify-content: stretch;
     overflow-x: auto;
     padding: 0.12rem;
+  }
+
+  .mobile-main-view-toggle {
+    order: 3;
+    flex: 1 0 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    margin-top: 0.1rem;
   }
 
   .main-view-toggle button {
@@ -3559,8 +3565,10 @@ input {
     gap: 0.35rem;
   }
 
-  .main-view-toggle {
-    margin-top: 0.1rem;
+  .main-view-toggle button {
+    min-width: 3.85rem;
+    padding: 0 0.45rem;
+    font-size: 0.69rem;
   }
 
   .tasks-workspace {

@@ -6367,7 +6367,7 @@ export function App() {
             ) : null}
           </div>
           <div className="chat-header-controls">
-            {activeProject ? (
+            {activeProject && !isMobileViewport ? (
               <div className="main-view-toggle" role="tablist" aria-label="Main view">
                 <button
                   type="button"
@@ -6422,6 +6422,37 @@ export function App() {
               </button>
             ) : null}
           </div>
+          {activeProject && isMobileViewport ? (
+            <div className="main-view-toggle mobile-main-view-toggle" role="tablist" aria-label="Main view">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeMainView === "chat"}
+                className={activeMainView === "chat" ? "active" : ""}
+                onClick={() => setActiveMainView("chat")}
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeMainView === "files"}
+                className={activeMainView === "files" ? "active" : ""}
+                onClick={() => setActiveMainView("files")}
+              >
+                Files
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeMainView === "tasks"}
+                className={activeMainView === "tasks" ? "active" : ""}
+                onClick={() => setActiveMainView("tasks")}
+              >
+                Tasks
+              </button>
+            </div>
+          ) : null}
         </header>
 
         {activeProject && !isMobileViewport ? (
