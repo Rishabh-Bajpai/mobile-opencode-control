@@ -3329,6 +3329,7 @@ export function App() {
   const firstMessageMarkerProjectsRef = useRef<Set<string>>(new Set());
   const chatBodyRef = useRef<HTMLElement | null>(null);
   const timelineEntryRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const latestReadEntryIdByChatRef = useRef<Record<string, string>>({});
   const pendingOpenScrollRef = useRef<string | null>(null);
   const previousChatKeyRef = useRef<string | null>(null);
@@ -4149,6 +4150,13 @@ export function App() {
     }
     setRunIntentActive(false);
   }, [aborting, activeProject?.sessionStatus, fixtureMode, hasStreamingActivity, runIntentActive, sending, streamStatus]);
+
+  useEffect(() => {
+    const el = composerTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [composerValue]);
 
   useEffect(() => {
     const activityEntries = renderedTimelineEntries.filter(
@@ -7104,7 +7112,9 @@ export function App() {
           >
             /
           </button>
-          <input
+          <textarea
+            ref={composerTextareaRef}
+            rows={1}
             disabled={
               !activeProject ||
               sending ||
@@ -7122,6 +7132,12 @@ export function App() {
                 ? "Transcribing audio..."
                 : "Message"
             }
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
           />
           <div className="composer-actions">
             <button
