@@ -38,4 +38,33 @@ cp .env.example .env
 
 - Frontend: Vite + React 18 + TypeScript
 - Backend: Flask + Flask-SQLAlchemy + SQLite (default)
-- DB override: Set `DATABASE_URL` in `.env` for PostgreSQL
+- DB override: Set `DATABASE_URL` in `.env` for PostgreSQL# Ralph Agent Instructions
+
+## Overview
+
+Ralph is an autonomous AI agent loop that runs OpenCode repeatedly until all PRD items are complete. Each iteration is a fresh OpenCode instance with clean context.
+
+## Commands
+
+```bash
+# Run Ralph (from your project that has prd.json)
+./ralph.sh [max_iterations]
+```
+
+## Key Files
+
+- `ralph.sh` - The bash loop that spawns fresh OpenCode instances
+- `prompt.md` - Instructions given to each OpenCode instance
+- `prd.json.example` - Example PRD format
+
+## Patterns
+
+- Each iteration spawns a fresh OpenCode instance with clean context
+- Memory persists via git history, `progress.txt`, and `prd.json`
+- Stories should be small enough to complete in one context window
+- Always update AGENTS.md with discovered patterns for future iterations
+
+## Codebase Patterns
+- Follow Telegram-like UI fidelity patterns from the referenced series where compatible with PRD scope.
+- Do not add out-of-scope features (multi-user chat, group chat, video/audio calling).
+- Keep Linux as the only supported host OS.
