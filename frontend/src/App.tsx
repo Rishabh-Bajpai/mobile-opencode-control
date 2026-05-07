@@ -2075,9 +2075,14 @@ function getIntlPartInt(parts: Intl.DateTimeFormatPart[], type: string): number 
  * Converts a date + time string (as entered by the user) into an ISO UTC string,
  * interpreting the wall-clock time as being in `timezone` rather than the browser's
  * local timezone.
+ *
+ * @param dateStr - Date in "YYYY-MM-DD" format.
+ * @param timeStr - Time in "HH:mm" format (as produced by `<input type="time">`).
+ * @param timezone - IANA timezone identifier (e.g. "America/New_York").
  */
 function toIsoInTimezone(dateStr: string, timeStr: string, timezone: string): string | null {
   if (!dateStr) return null;
+  // Append seconds to satisfy the ISO 8601 full-time requirement used below.
   const timeString = (timeStr || "00:00") + ":00";
   try {
     // Treat the input as UTC to get a starting reference point.
@@ -2097,6 +2102,7 @@ function toIsoInTimezone(dateStr: string, timeStr: string, timezone: string): st
     });
     const parts = fmt.formatToParts(asUtc);
     let tzHour = getIntlPartInt(parts, "hour");
+    // Intl.DateTimeFormat with hour12:false can return 24 instead of 0 at midnight.
     if (tzHour === 24) tzHour = 0;
 
     // Re-express that wall-clock reading as a UTC timestamp.
@@ -2139,6 +2145,7 @@ function toDateInputPartsInTimezone(value: string | null, timezone: string): { d
     });
     const parts = fmt.formatToParts(date);
     let hour = getIntlPart(parts, "hour");
+    // Intl.DateTimeFormat with hour12:false can return "24" instead of "00" at midnight.
     if (hour === "24") hour = "00";
     const year = getIntlPart(parts, "year");
     if (!year) return { date: "", time: "" };
