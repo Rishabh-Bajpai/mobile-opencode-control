@@ -2055,6 +2055,85 @@ function toIsoFromLocalDateAndTime(date: string, time: string) {
   return localDateTime.toISOString();
 }
 
+/**
+ * Converts a date + time string (as entered by the user) into an ISO UTC string,
+ * interpreting the wall-clock time as being in `timezone` rather than the browser's
+ * local timezone.
+ */
+function toIsoInTimezone(dateStr: string, timeStr: string, timezone: string): string | null {
+  if (!dateStr) return null;
+  const timeString = (timeStr || "00:00") + ":00";
+  try {
+    // Treat the input as UTC to get a starting reference point.
+    const asUtc = new Date(`${dateStr}T${timeString}Z`);
+    if (Number.isNaN(asUtc.getTime())) return null;
+
+    // Determine what wall-clock time `timezone` shows at `asUtc`.
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(asUtc);
+    const get = (type: string) => parseInt(parts.find((p) => p.type === type)?.value ?? "0");
+    let tzHour = get("hour");
+    if (tzHour === 24) tzHour = 0;
+
+    // Re-express that wall-clock reading as a UTC timestamp.
+    const tzWallAsUtc = new Date(Date.UTC(get("year"), get("month") - 1, get("day"), tzHour, get("minute"), get("second")));
+
+    // The timezone's offset at this instant, then shift to get the true UTC time.
+    const offsetMs = asUtc.getTime() - tzWallAsUtc.getTime();
+    return new Date(asUtc.getTime() + offsetMs).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Formats a UTC ISO string as separate date ("YYYY-MM-DD") and time ("HH:mm") parts
+ * expressed in the given IANA `timezone`.
+ */
+function toDateInputPartsInTimezone(value: string | null, timezone: string): { date: string; time: string } {
+  if (!value) return { date: "", time: "" };
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: "", time: "" };
+  try {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(date);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+    let hour = get("hour");
+    if (hour === "24") hour = "00";
+    const year = get("year");
+    if (!year) return { date: "", time: "" };
+    return {
+      date: `${year}-${get("month")}-${get("day")}`,
+      time: `${hour}:${get("minute")}`,
+    };
+  } catch {
+    return { date: "", time: "" };
+  }
+}
+
+/** Returns a `datetime-local` input value ("YYYY-MM-DDTHH:mm") in the given timezone. */
+function toDateTimeInputValueInTimezone(value: string | null, timezone: string): string {
+  const parts = toDateInputPartsInTimezone(value, timezone);
+  return parts.date && parts.time ? `${parts.date}T${parts.time}` : "";
+}
+
 function formatElapsedShort(ms: number) {
   const safeMs = Math.max(0, ms);
   const totalSeconds = Math.floor(safeMs / 1000);
@@ -3458,9 +3537,9 @@ export function App() {
     setTaskInstructionInput(task.instruction);
     setTaskIntervalInput(task.intervalMinutes || 15);
     setTaskCronInput(task.cronExpression ?? "0 9 * * *");
-    setTaskOnceInput(toLocalDateTimeInputValue(task.onceRunAt));
-    const startsAtParts = toLocalDateInputParts(task.startsAt);
-    const endsAtParts = toLocalDateInputParts(task.endsAt);
+    setTaskOnceInput(toDateTimeInputValueInTimezone(task.onceRunAt, task.timezone || "UTC"));
+    const startsAtParts = toDateInputPartsInTimezone(task.startsAt, task.timezone || "UTC");
+    const endsAtParts = toDateInputPartsInTimezone(task.endsAt, task.timezone || "UTC");
     setTaskStartsDateInput(startsAtParts.date);
     setTaskStartsTimeInput(startsAtParts.time);
     setTaskEndsDateInput(endsAtParts.date);
@@ -4817,10 +4896,12 @@ export function App() {
         instruction: taskInstructionInput,
         taskType: taskTypeInput,
         cronExpression: taskCronInput,
-        onceRunAt: taskOnceInput ? new Date(taskOnceInput).toISOString() : null,
+        onceRunAt: taskOnceInput
+          ? toIsoInTimezone(taskOnceInput.split("T")[0], taskOnceInput.split("T")[1] ?? "00:00", taskTimezoneInput)
+          : null,
         intervalMinutes: taskIntervalInput,
-        startsAt: toIsoFromLocalDateAndTime(taskStartsDateInput, taskStartsTimeInput),
-        endsAt: toIsoFromLocalDateAndTime(taskEndsDateInput, taskEndsTimeInput),
+        startsAt: toIsoInTimezone(taskStartsDateInput, taskStartsTimeInput, taskTimezoneInput),
+        endsAt: toIsoInTimezone(taskEndsDateInput, taskEndsTimeInput, taskTimezoneInput),
         timezone: taskTimezoneInput,
         model: taskModelInput || null,
         agent: taskAgentInput || null,
@@ -4908,7 +4989,9 @@ export function App() {
       const result = await previewScheduledTask(activeProjectId, {
         taskType: taskTypeInput,
         cronExpression: taskCronInput,
-        onceRunAt: taskOnceInput ? new Date(taskOnceInput).toISOString() : null,
+        onceRunAt: taskOnceInput
+          ? toIsoInTimezone(taskOnceInput.split("T")[0], taskOnceInput.split("T")[1] ?? "00:00", taskTimezoneInput)
+          : null,
         intervalMinutes: taskIntervalInput,
         timezone: taskTimezoneInput,
       });

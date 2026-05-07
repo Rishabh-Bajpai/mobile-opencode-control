@@ -8,6 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
+from sqlalchemy import func
 
 from .db import db
 from .models import Project, ScheduledTask, ScheduledTaskRun, TimelineEvent
@@ -259,7 +260,12 @@ class TaskScheduler:
         *,
         status: str = "queued",
     ) -> ScheduledTaskRun:
-        next_run_number = int(task.total_runs or 0) + 1
+        max_run_number = (
+            db.session.query(func.max(ScheduledTaskRun.run_number))
+            .filter_by(task_id=task.id)
+            .scalar()
+        )
+        next_run_number = (max_run_number or 0) + 1
         run = ScheduledTaskRun(
             task_id=task.id,
             project_id=task.project_id,
@@ -370,6 +376,8 @@ class TaskScheduler:
 
                     run.status = "running"
                     run.started_at = _utc_now()
+                    run.error = None
+                    run.output_preview = None
                     task.last_status = "running"
                     task.last_error = None
                     db.session.commit()
@@ -534,8 +542,7 @@ class TaskScheduler:
     def _finish_run(self, task: ScheduledTask, run: ScheduledTaskRun, status: str, error: str | None = None) -> None:
         run.status = status
         run.finished_at = _utc_now()
-        if error:
-            run.error = error
+        run.error = error
         task.total_runs = int(task.total_runs or 0) + 1
         task.last_status = status
         task.last_error = error

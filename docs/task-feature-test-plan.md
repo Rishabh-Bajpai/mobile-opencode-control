@@ -44,11 +44,15 @@ Expected result:
 - `task-marker.txt` appears in the project.
 - The diff view and file browser both show the new file.
 
-Result I got: "#1 Manual run
+Result I got:
+
+```
+#1 Manual run
 
 4/25/2026, 5:30:13 AM
 
-running heartbeat missing opencode/minimax-m2.5-free build"""
+running heartbeat missing opencode/minimax-m2.5-free build
+```
 
 but no task is running, and no file creation
 
