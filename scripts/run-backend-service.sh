@@ -5,6 +5,29 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNTIME_DIR="$ROOT_DIR/.runtime"
 PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 
+ORIGINAL_BACKEND_PORT="${BACKEND_PORT-}"
+ORIGINAL_OPENCODE_APP_PORT="${OPENCODE_APP_PORT-}"
+ORIGINAL_OPENCODE_BASE_URL="${OPENCODE_BASE_URL-}"
+
+if [[ -f "$ROOT_DIR/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
+if [[ -n "$ORIGINAL_BACKEND_PORT" ]]; then
+  BACKEND_PORT="$ORIGINAL_BACKEND_PORT"
+fi
+
+if [[ -n "$ORIGINAL_OPENCODE_APP_PORT" ]]; then
+  OPENCODE_APP_PORT="$ORIGINAL_OPENCODE_APP_PORT"
+fi
+
+if [[ -n "$ORIGINAL_OPENCODE_BASE_URL" ]]; then
+  OPENCODE_BASE_URL="$ORIGINAL_OPENCODE_BASE_URL"
+fi
+
 mkdir -p "$RUNTIME_DIR"
 
 BACKEND_PORT="${BACKEND_PORT:-38473}"

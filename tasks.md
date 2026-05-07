@@ -21,7 +21,7 @@ Goal: fix session loading latency, message expansion stability, scroll anchoring
 ### Tasks
 
 - [ ] Reduce chat hydration latency by prioritizing message history and deferring secondary loads where possible.
-- [ ] Stop full chat reloads on every SSE event and replace them with lighter incremental refresh behavior.
+- [x] Stop full chat reloads on every SSE event and replace them with lighter incremental refresh behavior.
 - [ ] Add a dedicated initial pending-approvals fetch path so approvals are present when reopening a chat.
 - [ ] Make activity card expansion state fully controlled and independent from new incoming messages.
 - [ ] Make nested part and submessage expansion state stable across rerenders and live inserts.
@@ -29,6 +29,7 @@ Goal: fix session loading latency, message expansion stability, scroll anchoring
 - [ ] Preserve viewport position when the user is reading older content and new messages/activity arrive.
 - [ ] Keep unread tracking independent from forced viewport jumps.
 - [ ] Add browser notifications for new final agent messages when the tab is backgrounded.
+- [x] Refresh the session list in the background so sessions created outside the app appear without switching projects.
 - [ ] Verify the full flow on desktop and mobile-sized layouts using the local dev scripts.
 
 ---
@@ -256,7 +257,7 @@ Goal: installable Telegram-like PWA that is stable for daily use.
 
 ### Tasks
 
-- [ ] Add web manifest + service worker + install prompt
+- [x] Add web manifest + service worker + install prompt
 - [x] Implement responsive shell for mobile and desktop parity
 - [ ] Implement Telegram-like sidebar ergonomics:
   - [ ] persisted width in local storage
@@ -269,7 +270,7 @@ Goal: installable Telegram-like PWA that is stable for daily use.
 - [ ] Add operator docs:
   - [x] install/runbook
   - [x] env setup
-  - [ ] troubleshooting guide
+  - [x] troubleshooting guide
 
 ### Validation (must pass)
 
@@ -330,3 +331,214 @@ Goal: app runs natively on Windows 10/11 (non-WSL).
 - [ ] Security review completed for single-user password/session model.
 - [ ] Performance targets from `PDR.md` measured and documented.
 - [ ] Release tag created with deployment instructions.
+
+---
+
+## Milestone 10 - Redesigned Task Scheduling System (Gate 10)
+
+Goal: transform task scheduling from a simple interval-based runner into a flexible agent-style task system supporting interval/cron/one-time/goal-based tasks with full configurability.
+
+### Current State (issues to fix)
+
+The existing implementation (`backend/app/scheduler.py`, `models.py:ScheduledTask`, `routes.py:1687-1816`) has these problems:
+
+**Configuration & Input**
+- No model/agent selection — tasks always use OpenCode default (`scheduler.py:284,293`)
+- No timezone support — `next_run_at` is UTC-only; tasks fire at wrong wall-clock times
+- No task name/title — tasks are anonymous
+- No description/notes field
+
+**Scheduling Logic**
+- Interval-only scheduling — no cron, no specific time-of-day triggers
+- No end/expiration date (`ends_at`)
+- No max run count limit
+- No "run once" one-time task
+- No pause/resume (only enable/disable)
+- 20s poll granularity is imprecise
+- No concurrency limit — all due tasks fire simultaneously
+- No skip/miss detection when scheduler is down
+
+**Task Scope & Multiplicity**
+- One task per project only (`unique=True` on `project_id`)
+- No task groups
+- Tasks require a project directory — no standalone tasks
+
+**Objective-Based / Goal-Oriented Tasks**
+- No stop condition evaluation — tasks fire on interval regardless of goal state
+- No result-checking loop — can't evaluate "is goal met?"
+- No auto-injected stop prompt
+- Sessions are throwaway — no persistent context across runs for goal-tracking
+- No task completion criteria — agent reports done but system doesn't evaluate
+
+**Error Handling & Resilience**
+- No retry policy — one failure = task marked failed
+- Permission prompts block tasks with no timeout/escalation
+- Hard dependency on `heartbeat_instruction.md` — can't disable
+- No task-level timeout — runaway agent hangs indefinitely
+- No notifications on failure
+
+**Visibility & Observability**
+- Output preview truncated to 1200 chars
+- No full run logs (tool calls, file changes)
+- No task metrics (success rate, avg runtime)
+
+**UI/UX**
+- Interval-only input — no cron builder, no date/time picker for one-time tasks
+- No "next run" preview given current settings
+- No "view in OpenCode" link for run sessions
+
+### New Data Models
+
+**Task types (mutually exclusive):**
+- `interval` — run every N minutes (improved version of current)
+- `cron` — run based on cron expression (e.g. `0 8 * * 1-5`)
+- `once` — run exactly once at a specific datetime
+- `goal` — keep running until an objective condition is met
+
+**New ScheduledTask fields:**
+- `name` (string) — human-readable task name
+- `description` (text, nullable) — optional notes
+- `task_type` (string) — `interval` | `cron` | `once` | `goal`
+- `cron_expression` (string, nullable) — for cron type tasks
+- `once_run_at` (datetime, nullable) — for once type tasks
+- `interval_minutes` (int) — for interval type tasks
+- `timezone` (string) — e.g. `America/New_York`
+- `model` (string, nullable) — per-task model override
+- `agent` (string, nullable) — per-task agent override
+- `enabled` (bool) — pause/resume
+- `starts_at` (datetime, nullable) — task becomes active at this time
+- `ends_at` (datetime, nullable) — task expires at this time
+- `max_runs` (int, nullable) — stop after N runs (0 = unlimited)
+- `run_timeout_minutes` (int, nullable) — max runtime per run
+- `heartbeat_enabled` (bool) — whether to read `heartbeat_instruction.md`
+- `goal_definition` (text, nullable) — natural language objective (e.g. "Monitor NVDA stock. When price > $250, send email to me@example.com")
+- `goal_check_expression` (text, nullable) — programmatic stop condition (e.g. `stock_price > 250`)
+- `goal_check_script` (text, nullable) — executable script to evaluate condition
+- `notification_email` (string, nullable) — email to notify on completion/failure
+- `auto_disable_on_goal_met` (bool) — disable task when goal achieved
+- `retry_count` (int) — number of retries on failure
+- `retry_backoff_minutes` (int) — backoff multiplier between retries
+- `created_at`, `updated_at`
+- `next_run_at`, `last_run_at`, `last_status`, `last_error`
+- `total_runs` (int) — running count of executions
+- `runs` (relationship to ScheduledTaskRun)
+
+**New ScheduledTaskRun fields:**
+- `run_number` (int) — sequential run number for this task
+- `model_used` (string, nullable) — actual model used
+- `agent_used` (string, nullable) — actual agent used
+- `timeout_used` (int, nullable) — timeout that was applied
+- `heartbeat_used` (bool) — whether heartbeat was loaded
+- `goal_attempted` (bool) — whether goal evaluation ran
+- `goal_met` (bool, nullable) — whether goal was met this run
+- `goal_output` (text, nullable) — output of goal check
+- `retry_attempt` (int) — which retry attempt this is
+- Standard fields: id, task_id, project_id, status, session_id, trigger, started_at, finished_at, output_preview, error
+
+### Backend Tasks
+
+- [x] Add new fields to `ScheduledTask` and `ScheduledTaskRun` models
+- [x] Update `ScheduledTask` with `unique=False` on `project_id` (allow multiple per project)
+- [x] Implement cron expression parser (or use `croniter` library)
+- [x] Implement timezone-aware datetime handling throughout scheduler
+- [x] Implement all four task types in scheduler:
+  - [x] interval: existing behavior, improved with new fields
+  - [x] cron: evaluate cron expression, calculate next_run_at
+  - [x] once: set enabled=False after first run
+  - [x] goal: evaluate condition after each run, decide stop/continue
+- [x] Implement model + agent selection per task in `send_message()`
+- [ ] Implement task-level timeout (kill session if exceeded)
+- [x] Implement heartbeat as optional (configurable flag)
+- [x] Implement retry policy with exponential backoff
+- [x] Implement concurrency limit (max N concurrent task sessions)
+- [x] Implement auto-injected "stop when done" completion prompt
+- [x] Implement goal condition evaluator (agent judgment; arbitrary script/expression execution deferred)
+- [x] Implement `pause`/`resume` API (preserves next_run_at state)
+- [x] Implement `max_runs` enforcement (disable task after N runs)
+- [x] Implement `ends_at` enforcement (disable task after date)
+- [x] Update scheduler status endpoint with concurrency stats
+- [x] Update task CRUD routes for all new fields
+- [x] Add task validation (e.g. cron expression syntax check)
+- [x] Update `recover_interrupted_runs()` for all new task types
+- [ ] Add "view session in OpenCode" URL to task run response
+- [x] Add basic metrics to task detail/run responses: success rate, avg runtime, last N outcomes per task
+- [x] Add optional ntfy-compatible HTTP notification URL support
+
+### Frontend Tasks
+
+- [x] Update `ScheduledTask` and `ScheduledTaskRun` TypeScript types
+- [x] Add task type selector UI (interval / cron / once / goal)
+- [x] Add model + agent picker per task
+- [x] Add timezone selector
+- [ ] Add start date + end date pickers
+- [x] Add max runs input
+- [x] Add run timeout input
+- [x] Add heartbeat toggle
+- [x] Add goal definition textarea
+- [ ] Add goal check script editor (deferred; arbitrary script execution not implemented in MVP)
+- [x] Add notification URL field (ntfy-compatible HTTP notification)
+- [ ] Add notification email field
+- [x] Add cron expression builder UI (or raw input with preview)
+- [x] Add "next 5 run times" preview given current settings
+- [x] Add "pause task" / "resume task" buttons
+- [ ] Add "view in OpenCode" link button for run sessions
+- [ ] Add task metrics display (success rate, trends)
+- [ ] Improve run history UI:
+  - [x] Show run number, model used, goal met status
+  - [ ] Pagination with time range filter
+  - [ ] Full output expansion
+- [x] Add task name + description fields to task form
+- [x] Add multiple tasks list view per project
+- [ ] Add task group/organization (future-proof)
+
+### Validation (must pass)
+
+- [ ] User can create multiple tasks for the same project.
+- [ ] Interval tasks fire at correct wall-clock times across timezones.
+- [ ] Cron tasks fire at correct times based on cron expression.
+- [ ] One-time tasks fire exactly once and then disable themselves.
+- [ ] Goal tasks keep running until condition is met, then auto-stop.
+- [ ] User can select a custom model per task.
+- [ ] User can select a custom agent per task.
+- [ ] Tasks can be paused and resumed without losing their next-run time.
+- [ ] Tasks respect start date, end date, and max runs limits.
+- [ ] Failed tasks retry with configured backoff.
+- [ ] Tasks timeout after configured duration.
+- [ ] `heartbeat_instruction.md` is optional per task.
+- [ ] Run history shows full output, model used, and goal status.
+- [ ] "View in OpenCode" button links to the correct session.
+- [ ] Task metrics (success rate, avg runtime) are visible.
+- [ ] One-time tasks: schedule for a specific datetime and never run again.
+
+---
+
+### Open Questions / Design Decisions Needed
+
+Decisions for the first implementation pass:
+
+- **Scope**: MVP first. Implement multiple tasks, interval/cron/once/goal task types, model/agent overrides, timezone support, pause/resume, raw cron preview, optional heartbeat, run limits, persistent goal sessions, and basic observability. Defer high-risk or heavy items where noted.
+- **Goal condition evaluation**: agent judgment via structured response/prompting. Do not execute arbitrary user scripts in this pass.
+- **Notifications**: in-app/browser notifications plus optional HTTP notification via ntfy-compatible topic URL.
+- **Concurrency model**: queued with configurable global concurrency limit, defaulting to conservative parallelism.
+- **Goal sessions**: persistent session per goal task for context continuity.
+- **Migration strategy**: best-effort startup migration is acceptable; existing task data is not critical for this user.
+- **Multiplicity**: allow multiple scheduled tasks per project now.
+- **Cron UI**: raw cron expression input with validation and next-run preview.
+
+Deferred or constrained for MVP:
+
+- Arbitrary `goal_check_expression` and `goal_check_script` execution are not implemented for security reasons.
+- SMTP email is not implemented; HTTP notification uses ntfy-compatible POST.
+- Full cron builder and task groups are deferred.
+- Full run log capture/tool-call archival is deferred beyond existing run output/timeline storage.
+
+Historical open questions:
+
+1. **Goal condition evaluation**: Should it be a shell script, a Python expression, or a natural language check by the agent itself?
+2. **Notification system**: Email via SMTP, or webhook-based? Who owns the email config?
+3. **Concurrency model**: Should multiple tasks run in parallel (current), or should there be a queue?
+4. **Session persistence for goal tasks**: Should goal-based tasks keep their session across runs for continuity?
+5. **Heartbeat auto-injection**: Should the system auto-add "complete your objective and stop" to the agent prompt, or is that the user's job?
+6. **Task priority**: Should tasks have a priority field to order execution?
+7. **Task templates**: Should there be pre-built task templates (e.g. "daily email", "stock monitor")?
+8. **Database migration strategy**: How to safely migrate the existing `ScheduledTask` table without losing data?

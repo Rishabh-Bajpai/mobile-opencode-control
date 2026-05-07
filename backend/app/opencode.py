@@ -152,6 +152,7 @@ class OpenCodeClient:
         text: str,
         model: str | None = None,
         agent: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> dict:
         payload = {
             "directory": directory,
@@ -171,7 +172,7 @@ class OpenCodeClient:
             params={"directory": directory},
             json=payload,
             headers=self._headers(),
-            timeout=180,
+            timeout=max(1, int(timeout_seconds)) if timeout_seconds is not None else 180,
         )
         response.raise_for_status()
         return response.json()

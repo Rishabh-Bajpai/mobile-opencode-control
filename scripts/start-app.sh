@@ -128,9 +128,12 @@ BACKEND_BASE_URL="http://127.0.0.1:${BACKEND_PORT}"
 FRONTEND_BASE_PORT="${FRONTEND_APP_PORT:-5173}"
 FRONTEND_PORT="$(pick_port "$FRONTEND_BASE_PORT")"
 FRONTEND_BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
+FRONTEND_ALLOWED_HOSTS="${FRONTEND_ALLOWED_HOSTS:-localhost,127.0.0.1}"
+FRONTEND_ORIGINS="${FRONTEND_ORIGINS:-http://localhost:${FRONTEND_PORT}}"
+OPENCODE_CORS_ORIGINS="${OPENCODE_CORS_ORIGINS:-$FRONTEND_ORIGINS}"
 
 echo "Starting OpenCode server..."
-opencode serve --hostname 127.0.0.1 --port "$OPENCODE_PORT" --cors "http://localhost:${FRONTEND_PORT}" >"$LOG_DIR/opencode.log" 2>&1 &
+opencode serve --hostname 127.0.0.1 --port "$OPENCODE_PORT" --cors "$OPENCODE_CORS_ORIGINS" >"$LOG_DIR/opencode.log" 2>&1 &
 echo $! >"$OPENCODE_PID_FILE"
 echo "$OPENCODE_PORT" >"$OPENCODE_PORT_FILE"
 echo "$OPENCODE_BASE_URL" >"$OPENCODE_URL_FILE"
@@ -141,13 +144,13 @@ if ! wait_for_opencode "$OPENCODE_PORT"; then
 fi
 
 echo "Starting backend with project venv..."
-OPENCODE_BASE_URL="$OPENCODE_BASE_URL" BACKEND_PORT="$BACKEND_PORT" "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/backend/run.py" >"$LOG_DIR/backend.log" 2>&1 &
+OPENCODE_BASE_URL="$OPENCODE_BASE_URL" FRONTEND_ORIGINS="$FRONTEND_ORIGINS" FRONTEND_ORIGIN="${FRONTEND_ORIGIN:-$(printf '%s' "$FRONTEND_ORIGINS" | cut -d',' -f1)}" BACKEND_PORT="$BACKEND_PORT" "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/backend/run.py" >"$LOG_DIR/backend.log" 2>&1 &
 echo $! >"$BACKEND_PID_FILE"
 echo "$BACKEND_PORT" >"$BACKEND_PORT_FILE"
 echo "$BACKEND_BASE_URL" >"$BACKEND_URL_FILE"
 
 echo "Starting frontend dev server..."
-BACKEND_PORT="$BACKEND_PORT" npm --prefix "$ROOT_DIR/frontend" run dev -- --host 0.0.0.0 --port "$FRONTEND_PORT" >"$LOG_DIR/frontend.log" 2>&1 &
+BACKEND_PORT="$BACKEND_PORT" FRONTEND_ALLOWED_HOSTS="$FRONTEND_ALLOWED_HOSTS" npm --prefix "$ROOT_DIR/frontend" run dev -- --host 0.0.0.0 --port "$FRONTEND_PORT" >"$LOG_DIR/frontend.log" 2>&1 &
 echo $! >"$FRONTEND_PID_FILE"
 echo "$FRONTEND_PORT" >"$FRONTEND_PORT_FILE"
 echo "$FRONTEND_BASE_URL" >"$FRONTEND_URL_FILE"

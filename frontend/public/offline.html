@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#17212b" />
+    <title>OpenCode Controller Offline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #101820;
+        color: #eff4fa;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top, rgba(57, 123, 204, 0.28), transparent 38%),
+          linear-gradient(180deg, #17212b 0%, #101820 100%);
+      }
+
+      main {
+        width: min(28rem, calc(100vw - 2rem));
+        padding: 2rem;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 20px;
+        background: rgba(8, 14, 20, 0.72);
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+      }
+
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: 1.5rem;
+      }
+
+      p {
+        margin: 0.75rem 0;
+        line-height: 1.55;
+        color: rgba(239, 244, 250, 0.86);
+      }
+
+      a {
+        color: #8fc4ff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>OpenCode Controller is offline</h1>
+      <p>The installed app is available, but this page needs a network connection to refresh live workspace data.</p>
+      <p>Reconnect and reopen the app to continue, or go back if you already have a cached screen open.</p>
+      <p><a href="/">Retry</a></p>
+    </main>
+  </body>
+</html>

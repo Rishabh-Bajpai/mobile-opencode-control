@@ -72,6 +72,7 @@ input {
 .new-project input,
 .new-project button,
 .composer input,
+.composer textarea,
 .composer button {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -939,6 +940,7 @@ input {
   display: grid;
   gap: 0.9rem;
   margin-top: 0.72rem;
+  min-height: 0;
 }
 
 .chat-toolbar-content.collapsed {
@@ -956,6 +958,7 @@ input {
   grid-template-columns: minmax(300px, 460px) minmax(340px, 1fr);
   gap: 0.9rem;
   align-items: start;
+  min-height: 0;
 }
 
 .toolbar-card {
@@ -963,6 +966,26 @@ input {
   border-radius: 16px;
   background: rgba(19, 33, 48, 0.84);
   padding: 0.85rem 0.9rem;
+  min-width: 0;
+}
+
+.scheduler-card-desktop {
+  grid-column: 1 / -1;
+  padding: 0;
+}
+
+.scheduler-card-desktop .task-panel {
+  margin: 0;
+  max-width: none;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+}
+
+.scheduler-card-desktop .task-panel[open] .task-panel-content {
+  max-height: min(56vh, 34rem);
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .commands-card {
@@ -987,7 +1010,18 @@ input {
   gap: 0.55rem;
 }
 
+.install-controls {
+  display: grid;
+  gap: 0.55rem;
+}
+
 .notification-controls small {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.install-controls small {
   color: var(--text-muted);
   font-size: 0.75rem;
   line-height: 1.45;
@@ -1207,8 +1241,15 @@ input {
   backdrop-filter: blur(10px);
 }
 
-.composer > input {
+.composer > textarea {
   min-width: 0;
+  resize: none;
+  overflow-y: auto;
+  max-height: 8rem;
+  line-height: 1.4;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  font-family: inherit;
 }
 
 .composer-actions {
@@ -1832,6 +1873,7 @@ input {
   border: 1px solid var(--border);
   border-radius: 16px;
   background: rgba(23, 33, 43, 0.86);
+  min-width: 0;
 }
 
 .task-panel summary {
@@ -1839,6 +1881,7 @@ input {
   padding: 0.5rem 0.65rem;
   font-size: 0.84rem;
   user-select: none;
+  overflow-wrap: anywhere;
 }
 
 .task-panel-content {
@@ -1846,6 +1889,8 @@ input {
   padding: 0.6rem;
   display: grid;
   gap: 0.55rem;
+  min-width: 0;
+  align-content: start;
 }
 
 .task-panel-content label {
@@ -1853,15 +1898,19 @@ input {
   gap: 0.25rem;
   font-size: 0.78rem;
   color: var(--text-muted);
+  min-width: 0;
 }
 
 .task-panel-content textarea,
-.task-panel-content input[type="number"] {
+.task-panel-content input,
+.task-panel-content select {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #0f1b29;
   color: var(--text-main);
   padding: 0.45rem 0.55rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .task-panel-content textarea {
@@ -1870,21 +1919,24 @@ input {
 }
 
 .task-inline-fields {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 0.6rem;
+  min-width: 0;
 }
 
 .task-enabled {
   display: flex !important;
   align-items: center;
   gap: 0.35rem;
+  min-width: 0;
 }
 
 .task-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.45rem;
+  min-width: 0;
 }
 
 .task-actions button {
@@ -1896,6 +1948,8 @@ input {
   color: #fff;
   font-weight: 600;
   cursor: pointer;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .task-actions button.danger {
@@ -1910,12 +1964,14 @@ input {
 .task-status-meta {
   display: grid;
   gap: 0.2rem;
+  min-width: 0;
 }
 
 .task-overview {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+  min-width: 0;
 }
 
 .task-status-badge {
@@ -1926,6 +1982,7 @@ input {
   border-radius: 999px;
   padding: 0 0.55rem;
   font-size: 0.72rem;
+  overflow-wrap: anywhere;
 }
 
 .task-status-badge.success {
@@ -1962,6 +2019,7 @@ input {
 .task-runs {
   display: grid;
   gap: 0.35rem;
+  min-width: 0;
 }
 
 .task-runs strong {
@@ -1974,6 +2032,7 @@ input {
   list-style: none;
   display: grid;
   gap: 0.28rem;
+  min-width: 0;
 }
 
 .task-runs li {
@@ -1985,6 +2044,7 @@ input {
   background: rgba(16, 27, 40, 0.5);
   font-size: 0.74rem;
   color: var(--text-muted);
+  min-width: 0;
 }
 
 .task-run-item-main,
@@ -1993,6 +2053,8 @@ input {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .task-run-item-main strong {
@@ -2003,6 +2065,29 @@ input {
 .task-runs li p {
   margin: 0;
   line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 721px) {
+  .chat-toolbar {
+    min-height: 0;
+  }
+
+  .chat-toolbar-content {
+    max-height: min(68vh, 52rem);
+    overflow: auto;
+    padding-right: 0.2rem;
+  }
+
+  .task-panel-content {
+    max-height: min(56vh, 34rem);
+    overflow: auto;
+    padding-right: 0.35rem;
+  }
+
+  .scheduler-card-desktop .task-panel-content {
+    max-height: min(56vh, 34rem);
+  }
 }
 
 .task-error-inline {
@@ -2015,6 +2100,210 @@ input {
 
 .task-run-item.error {
   border-color: rgba(222, 101, 95, 0.24);
+}
+
+.tasks-main-view {
+  min-height: 0;
+  overflow: auto;
+}
+
+.tasks-workspace {
+  min-height: 100%;
+  padding: 1rem 1.1rem 1.25rem;
+}
+
+.tasks-shell {
+  display: grid;
+  grid-template-columns: minmax(18rem, 22rem) minmax(0, 1fr);
+  gap: 1rem;
+  max-width: 92rem;
+  margin: 0 auto;
+  align-items: start;
+}
+
+.tasks-browser,
+.tasks-editor-card,
+.tasks-editor-head {
+  border: 1px solid rgba(125, 169, 214, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(88, 142, 211, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(16, 25, 36, 0.96), rgba(10, 17, 27, 0.98));
+  box-shadow: 0 24px 80px rgba(1, 7, 18, 0.42);
+}
+
+.tasks-browser {
+  position: sticky;
+  top: 0.9rem;
+  border-radius: 22px;
+  padding: 1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.tasks-browser-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.tasks-kicker {
+  margin: 0 0 0.28rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.68rem;
+  color: #83bdf5;
+}
+
+.tasks-browser-head h2,
+.tasks-editor-head h3 {
+  margin: 0;
+  font-size: clamp(1.2rem, 2vw, 1.8rem);
+  color: #eff7ff;
+}
+
+.tasks-browser-head small,
+.tasks-editor-head small,
+.tasks-runs-head small {
+  color: var(--text-muted);
+}
+
+.tasks-browser-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.task-browser-item {
+  width: 100%;
+  border: 1px solid rgba(125, 169, 214, 0.14);
+  border-radius: 18px;
+  background: rgba(17, 28, 41, 0.82);
+  color: inherit;
+  text-align: left;
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.5rem;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.task-browser-item:hover,
+.task-browser-item.active {
+  border-color: rgba(109, 184, 255, 0.48);
+  background: rgba(24, 41, 62, 0.96);
+  transform: translateY(-1px);
+}
+
+.task-browser-item-top,
+.task-browser-item-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.task-browser-item-top strong {
+  font-size: 0.94rem;
+  color: #eef6ff;
+}
+
+.task-browser-item p,
+.tasks-browser-empty p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.task-browser-item-meta span,
+.task-browser-item small {
+  color: #aac3db;
+  font-size: 0.74rem;
+}
+
+.tasks-browser-empty {
+  border: 1px dashed rgba(125, 169, 214, 0.24);
+  border-radius: 18px;
+  padding: 1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.tasks-browser-empty strong {
+  color: #eef6ff;
+}
+
+.tasks-editor {
+  display: grid;
+  gap: 1rem;
+}
+
+.tasks-editor-head {
+  border-radius: 22px;
+  padding: 1rem 1.1rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.tasks-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(18rem, 0.95fr);
+  gap: 1rem;
+}
+
+.tasks-editor-card {
+  border-radius: 22px;
+  padding: 1rem 1.1rem;
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+  align-content: start;
+}
+
+.tasks-editor-card label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+.tasks-editor-card textarea,
+.tasks-editor-card input,
+.tasks-editor-card select {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(10, 17, 27, 0.92);
+  color: var(--text-main);
+  padding: 0.62rem 0.72rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.tasks-editor-card textarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.tasks-runs-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.tasks-runs-card .task-runs {
+  max-height: 62vh;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.task-preview-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
 }
 
 .approval-list {
@@ -2692,6 +2981,8 @@ input {
     backdrop-filter: blur(18px);
     border-bottom: 1px solid rgba(82, 114, 144, 0.16);
     gap: 0.55rem;
+    flex-wrap: wrap;
+    align-items: center;
   }
 
   .mobile-back-button,
@@ -2732,16 +3023,30 @@ input {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
+    margin-left: auto;
   }
 
   .main-view-toggle {
-    order: 1;
+    justify-content: stretch;
+    overflow-x: auto;
+    padding: 0.12rem;
+  }
+
+  .mobile-main-view-toggle {
+    order: 3;
+    flex: 1 0 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    margin-top: 0.1rem;
   }
 
   .main-view-toggle button {
+    flex: 1 1 0;
     min-height: 1.8rem;
     font-size: 0.72rem;
     padding: 0 0.6rem;
+    white-space: nowrap;
   }
 
   .mobile-chat-meta-strip.visible {
@@ -2956,14 +3261,19 @@ input {
     backdrop-filter: blur(18px);
   }
 
-  .composer > input {
+  .composer > textarea {
     order: 2;
     min-height: 2.82rem;
     border: 0;
-    border-radius: 999px;
+    border-radius: 14px;
     background: rgba(40, 53, 69, 0.98);
-    padding: 0 0.9rem;
+    padding: 0.5rem 0.9rem;
     font-size: 0.92rem;
+    font-family: inherit;
+    resize: none;
+    overflow-y: auto;
+    max-height: 5rem;
+    line-height: 1.35;
   }
 
   .composer-actions {
@@ -3076,5 +3386,339 @@ input {
   .mobile-settings-screen .notification-actions .secondary-button {
     width: 100%;
     min-width: 0;
+  }
+
+  .mobile-settings-screen .task-inline-fields,
+  .mobile-settings-screen .task-panel .task-inline-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mobile-settings-screen .task-actions,
+  .mobile-settings-screen .task-panel .task-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mobile-settings-screen .task-actions button,
+  .mobile-settings-screen .task-panel .task-actions button {
+    width: 100%;
+    min-width: 0;
+    flex-basis: auto;
+  }
+
+  .mobile-settings-screen .task-status-badge,
+  .mobile-settings-screen .task-panel .task-status-badge {
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .mobile-settings-screen .task-panel-content {
+    padding: 0.1rem 0;
+  }
+
+  .mobile-settings-screen .task-panel-content textarea {
+    min-height: 8.5rem;
+  }
+
+  .mobile-settings-screen .task-panel-content input,
+  .mobile-settings-screen .task-panel-content select,
+  .mobile-settings-screen .task-panel-content textarea {
+    max-width: 100%;
+  }
+
+  .mobile-settings-screen .task-overview,
+  .mobile-settings-screen .task-run-item-main,
+  .mobile-settings-screen .task-run-item-meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tasks-workspace {
+    padding: 0.5rem 0.55rem 0.95rem;
+  }
+
+  .tasks-shell,
+  .tasks-editor-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .tasks-browser {
+    position: static;
+    padding: 0.8rem;
+    gap: 0.75rem;
+  }
+
+  .tasks-editor-head {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.82rem 0.88rem;
+  }
+
+  .tasks-editor-card {
+    padding: 0.8rem;
+  }
+
+  .tasks-editor-card textarea {
+    min-height: 7.6rem;
+  }
+
+  .tasks-browser-head {
+    gap: 0.55rem;
+  }
+
+  .tasks-browser-head .secondary-button {
+    width: 100%;
+    min-height: 2.7rem;
+  }
+
+  .tasks-browser-list {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(15.5rem, 84vw);
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+  }
+
+  .task-browser-item {
+    min-height: 10.4rem;
+    padding: 0.82rem;
+    scroll-snap-align: start;
+  }
+
+  .task-browser-item p {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .tasks-editor-head h3,
+  .tasks-browser-head h2 {
+    font-size: 1.05rem;
+  }
+
+  .tasks-kicker {
+    font-size: 0.64rem;
+    letter-spacing: 0.14em;
+  }
+
+  .task-inline-fields {
+    gap: 0.5rem;
+  }
+
+  .tasks-browser-head,
+  .task-browser-item-top,
+  .task-browser-item-meta,
+  .tasks-runs-head,
+  .task-overview,
+  .task-run-item-main,
+  .task-run-item-meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tasks-runs-card .task-runs {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .task-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .task-actions button {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.55rem 0.7rem;
+  }
+
+  .task-actions button.danger {
+    grid-column: 1 / -1;
+  }
+
+  .task-preview-strip {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.15rem;
+  }
+
+  .task-status-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.7rem;
+  }
+
+  .task-status-meta small {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.8rem;
+    border: 1px solid rgba(121, 156, 188, 0.28);
+    border-radius: 999px;
+    padding: 0 0.6rem;
+    background: rgba(24, 39, 57, 0.58);
+  }
+
+  .tasks-runs-head {
+    margin-bottom: 0.15rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .chat-header {
+    padding: max(0.52rem, env(safe-area-inset-top)) 0.5rem 0.45rem;
+  }
+
+  .chat-header-controls {
+    gap: 0.35rem;
+  }
+
+  .main-view-toggle button {
+    min-width: 3.85rem;
+    padding: 0 0.45rem;
+    font-size: 0.69rem;
+  }
+
+  .tasks-workspace {
+    padding: 0.4rem 0.45rem 0.8rem;
+  }
+
+  .tasks-browser,
+  .tasks-editor-head,
+  .tasks-editor-card {
+    border-radius: 18px;
+  }
+
+  .tasks-browser {
+    padding: 0.72rem;
+  }
+
+  .tasks-browser-list {
+    grid-auto-columns: minmax(14.25rem, 88vw);
+    gap: 0.55rem;
+  }
+
+  .task-browser-item {
+    min-height: 9.6rem;
+    padding: 0.72rem;
+  }
+
+  .tasks-editor-head {
+    padding: 0.72rem;
+  }
+
+  .tasks-editor-card {
+    padding: 0.72rem;
+    gap: 0.68rem;
+  }
+
+  .tasks-browser-head h2,
+  .tasks-editor-head h3 {
+    font-size: 0.98rem;
+    line-height: 1.15;
+  }
+
+  .tasks-browser-head small,
+  .tasks-editor-head small {
+    display: none;
+  }
+
+  .tasks-browser-head small,
+  .tasks-editor-head small,
+  .tasks-runs-head small,
+  .task-status-meta small,
+  .task-muted {
+    font-size: 0.72rem;
+  }
+
+  .task-inline-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .task-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .task-actions button,
+  .tasks-browser-head .secondary-button {
+    min-height: 2.55rem;
+    font-size: 0.94rem;
+    line-height: 1.15;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .task-actions button.danger {
+    grid-column: auto;
+  }
+
+  .task-preview-strip {
+    gap: 0.3rem;
+  }
+
+  .task-status-meta {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.42rem;
+  }
+
+  .task-status-meta small {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tasks-runs-head,
+  .task-run-item-main,
+  .task-run-item-meta {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .tasks-runs-head small {
+    display: block;
+  }
+
+  .task-runs strong,
+  .task-run-item-main strong {
+    font-size: 0.92rem;
+    line-height: 1.15;
+  }
+
+  .task-run-item {
+    padding: 0.7rem;
+    gap: 0.42rem;
+  }
+
+  .task-run-item p {
+    font-size: 0.82rem;
+    line-height: 1.3;
+  }
+
+  .task-status-badge {
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.15;
+    padding-top: 0.24rem;
+    padding-bottom: 0.24rem;
+  }
+
+  .main-view-toggle {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .main-view-toggle button {
+    min-width: 4.2rem;
+    padding: 0 0.5rem;
+    font-size: 0.68rem;
   }
 }

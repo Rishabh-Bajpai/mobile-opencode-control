@@ -9,6 +9,12 @@ def _as_bool(value: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _split_csv(value: str | None) -> tuple[str, ...]:
+    if value is None:
+        return tuple()
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
 @dataclass(frozen=True)
 class Settings:
     app_env: str
@@ -16,12 +22,15 @@ class Settings:
     app_password: str
     database_url: str
     frontend_origin: str
+    frontend_origins: tuple[str, ...]
     opencode_base_url: str
     opencode_username: str
     opencode_password: str
     cors_enabled: bool
     scheduler_poll_interval_seconds: int
     task_run_retention_days: int
+    task_max_concurrent_runs: int
+    task_notification_url: str
     stt_base_url: str
     stt_model: str
     stt_api_key: str
@@ -46,6 +55,7 @@ def load_settings() -> Settings:
     app_password = os.getenv("APP_PASSWORD", "opencode")
     database_url = os.getenv("DATABASE_URL", "sqlite:///backend/data/app.db")
     frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+    frontend_origins = _split_csv(os.getenv("FRONTEND_ORIGINS")) or (frontend_origin,)
     opencode_base_url = os.getenv("OPENCODE_BASE_URL", "http://127.0.0.1:4096")
     opencode_username = os.getenv("OPENCODE_SERVER_USERNAME", "")
     opencode_password = os.getenv("OPENCODE_SERVER_PASSWORD", "")
@@ -54,6 +64,8 @@ def load_settings() -> Settings:
         os.getenv("SCHEDULER_POLL_INTERVAL_SECONDS", "20")
     )
     task_run_retention_days = int(os.getenv("TASK_RUN_RETENTION_DAYS", "30"))
+    task_max_concurrent_runs = int(os.getenv("TASK_MAX_CONCURRENT_RUNS", "2"))
+    task_notification_url = os.getenv("TASK_NOTIFICATION_URL", "")
     stt_base_url = os.getenv("STT_BASE_URL", "http://127.0.0.1:8969/v1")
     stt_model = os.getenv("STT_MODEL", "Systran/faster-whisper-medium.en")
     stt_api_key = os.getenv("STT_API_KEY", "")
@@ -74,8 +86,22 @@ def load_settings() -> Settings:
     builtin_tts_speaker = os.getenv("BUILTIN_TTS_SPEAKER", "")
     builtin_tts_language = os.getenv("BUILTIN_TTS_LANGUAGE", "")
     default_project_root = os.getenv("DEFAULT_PROJECT_ROOT", "")
-    parsed_frontend = urlparse(frontend_origin)
+    parsed_frontend = urlparse(frontend_origins[0])
     frontend_port = parsed_frontend.port or 5173
+
+    if app_env == "production":
+        invalid_secret_key = secret_key.strip() in {"", "change-me-in-production"}
+        invalid_app_password = app_password.strip() in {"", "opencode"}
+        if invalid_secret_key or invalid_app_password:
+            missing = []
+            if invalid_secret_key:
+                missing.append("APP_SECRET_KEY")
+            if invalid_app_password:
+                missing.append("APP_PASSWORD")
+            raise ValueError(
+                "Production configuration requires explicit secure values for "
+                + ", ".join(missing)
+            )
 
     return Settings(
         app_env=app_env,
@@ -83,12 +109,15 @@ def load_settings() -> Settings:
         app_password=app_password,
         database_url=database_url,
         frontend_origin=frontend_origin,
+        frontend_origins=frontend_origins,
         opencode_base_url=opencode_base_url,
         opencode_username=opencode_username,
         opencode_password=opencode_password,
         cors_enabled=cors_enabled,
         scheduler_poll_interval_seconds=scheduler_poll_interval_seconds,
         task_run_retention_days=max(task_run_retention_days, 1),
+        task_max_concurrent_runs=max(task_max_concurrent_runs, 1),
+        task_notification_url=task_notification_url,
         stt_base_url=stt_base_url.rstrip("/"),
         stt_model=stt_model,
         stt_api_key=stt_api_key,

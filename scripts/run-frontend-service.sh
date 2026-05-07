@@ -4,6 +4,24 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNTIME_DIR="$ROOT_DIR/.runtime"
 
+ORIGINAL_FRONTEND_APP_PORT="${FRONTEND_APP_PORT-}"
+ORIGINAL_BACKEND_PORT="${BACKEND_PORT-}"
+
+if [[ -f "$ROOT_DIR/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
+if [[ -n "$ORIGINAL_FRONTEND_APP_PORT" ]]; then
+  FRONTEND_APP_PORT="$ORIGINAL_FRONTEND_APP_PORT"
+fi
+
+if [[ -n "$ORIGINAL_BACKEND_PORT" ]]; then
+  BACKEND_PORT="$ORIGINAL_BACKEND_PORT"
+fi
+
 mkdir -p "$RUNTIME_DIR"
 
 FRONTEND_PORT="${FRONTEND_APP_PORT:-5173}"

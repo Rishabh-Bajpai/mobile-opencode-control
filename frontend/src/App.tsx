@@ -20,11 +20,14 @@ import {
   fetchSchedulerStatus,
   fetchScheduledTask,
   fetchScheduledTaskRuns,
+  pauseScheduledTask,
+  previewScheduledTask,
   getAuthState,
   login,
   logout,
   opencodeHealth,
   respondPermission,
+  resumeScheduledTask,
   runScheduledTaskNow,
   runCommand,
   saveScheduledTask,
@@ -79,6 +82,11 @@ interface SchedulerStatus {
   lastPrunedCount: number;
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
 type DevFixtureMode =
   | "task-run-success"
   | "task-run-error"
@@ -114,6 +122,26 @@ function resolveDevFixtureMode(): DevFixtureMode | null {
     default:
       return null;
   }
+}
+
+function getManualInstallMessage() {
+  if (typeof window === "undefined") {
+    return "Install is available from your browser menu when supported.";
+  }
+
+  const userAgent = window.navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/i.test(userAgent);
+  const isFirefox = /Firefox/i.test(userAgent);
+
+  if (isIOS) {
+    return "Use Share > Add to Home Screen to install this app.";
+  }
+
+  if (isFirefox) {
+    return "Use your browser menu and choose Add to Home Screen to install this app.";
+  }
+
+  return "Install this app from your browser menu when the direct install prompt is not available.";
 }
 
 function RuntimeControls({
@@ -301,61 +329,37 @@ function NotificationControls({
   );
 }
 
-function CommandHelpBar({
-  commands,
-  onInsert,
-  onOpenPicker,
-  defaultOpen = false,
+function InstallControls({
+  canInstall,
+  installed,
+  installMessage,
+  installing,
+  onInstall,
 }: {
-  commands: OpenCodeCommand[];
-  onInsert: (commandName: string) => void;
-  onOpenPicker: () => void;
-  defaultOpen?: boolean;
+  canInstall: boolean;
+  installed: boolean;
+  installMessage: string;
+  installing: boolean;
+  onInstall: () => void;
 }) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
-  useEffect(() => {
-    if (defaultOpen) {
-      setIsOpen(true);
-    }
-  }, [defaultOpen]);
-
-  if (commands.length === 0) {
-    return null;
-  }
-
   return (
-    <div className={`command-help-bar ${isOpen ? "open" : ""}`}>
-      <button
-        type="button"
-        className="command-help-toggle"
-        onClick={() => setIsOpen((current) => !current)}
-        aria-expanded={isOpen}
-      >
-        Commands
-        <span>{commands.length}</span>
-      </button>
-      {isOpen ? (
-        <>
-          <div className="command-help-actions">
-            <button type="button" className="command-picker-button" onClick={onOpenPicker}>
-              Browse commands
-            </button>
-          </div>
-          <div className="command-chip-list">
-            {commands.slice(0, 12).map((command) => (
-              <button
-                key={command.name}
-                type="button"
-                className="command-chip"
-                title={command.description || `Insert /${command.name}`}
-                onClick={() => onInsert(command.name)}
-              >
-                /{command.name}
-              </button>
-            ))}
-          </div>
-        </>
+    <div className="install-controls">
+      <div className="toolbar-card-head">
+        <strong>Install App</strong>
+        <span>Standalone launch and offline shell</span>
+      </div>
+      <small>{installMessage}</small>
+      {!installed && canInstall ? (
+        <div className="notification-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={onInstall}
+            disabled={installing}
+          >
+            {installing ? "Opening..." : "Install"}
+          </button>
+        </div>
       ) : null}
     </div>
   );
@@ -1201,15 +1205,25 @@ function timelineEventToTaskRun(event: TimelineEvent): ScheduledTaskRun | null {
 
   const payload = event.payload ?? {};
   const asString = (value: unknown) => (typeof value === "string" ? value : null);
+  const asIdString = (value: unknown) => {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+    return null;
+  };
   const asBoolean = (value: unknown) => Boolean(value);
+  const asNumber = (value: unknown) => (typeof value === "number" ? value : null);
 
-  const taskRunId = asString(payload.taskRunId) ?? asString(payload.task_run_id) ?? event.id;
+  const taskRunId = asIdString(payload.taskRunId) ?? asIdString(payload.task_run_id) ?? event.id;
   const status = asString(payload.status) ?? "unknown";
   const trigger = asString(payload.trigger) ?? "schedule";
 
   return {
     id: taskRunId,
-    taskId: asString(payload.taskId) ?? "",
+    taskId: asIdString(payload.taskId) ?? "",
     projectId: event.projectId,
     status,
     sessionId: asString(payload.sessionId),
@@ -1217,6 +1231,14 @@ function timelineEventToTaskRun(event: TimelineEvent): ScheduledTaskRun | null {
     startedAt: asString(payload.startedAt) ?? event.createdAt,
     finishedAt: asString(payload.finishedAt),
     heartbeatLoaded: asBoolean(payload.heartbeatLoaded),
+    runNumber: asNumber(payload.runNumber) ?? 1,
+    modelUsed: asString(payload.modelUsed),
+    agentUsed: asString(payload.agentUsed),
+    timeoutUsed: asNumber(payload.timeoutUsed),
+    goalAttempted: asBoolean(payload.goalAttempted),
+    goalMet: typeof payload.goalMet === "boolean" ? payload.goalMet : null,
+    goalOutput: asString(payload.goalOutput),
+    retryAttempt: asNumber(payload.retryAttempt) ?? 0,
     outputPreview: asString(payload.outputPreview),
     error: asString(payload.error),
   };
@@ -1998,6 +2020,150 @@ function formatRelativeTaskTime(value: string | null) {
   return deltaMs >= 0 ? `in ${absDays}d` : `${absDays}d ago`;
 }
 
+function toLocalDateInputParts(value: string | null): { date: string; time: string } {
+  if (!value) {
+    return { date: "", time: "" };
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return { date: "", time: "" };
+  }
+
+  const pad = (input: number) => String(input).padStart(2, "0");
+  return {
+    date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    time: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+  };
+}
+
+function toLocalDateTimeInputValue(value: string | null) {
+  const parts = toLocalDateInputParts(value);
+  return parts.date && parts.time ? `${parts.date}T${parts.time}` : "";
+}
+
+function toIsoFromLocalDateAndTime(date: string, time: string) {
+  if (!date) {
+    return null;
+  }
+
+  const localDateTime = new Date(`${date}T${time || "00:00"}`);
+  if (Number.isNaN(localDateTime.getTime())) {
+    return null;
+  }
+
+  return localDateTime.toISOString();
+}
+
+/**
+ * Extracts a string part from `Intl.DateTimeFormat.formatToParts()` output.
+ * Returns the empty string when the part is not present.
+ */
+function getIntlPart(parts: Intl.DateTimeFormatPart[], type: string): string {
+  return parts.find((p) => p.type === type)?.value ?? "";
+}
+
+/**
+ * Like `getIntlPart` but parses the result as a base-10 integer.
+ * Returns 0 when the part is missing.
+ */
+function getIntlPartInt(parts: Intl.DateTimeFormatPart[], type: string): number {
+  return parseInt(getIntlPart(parts, type) || "0", 10);
+}
+
+/**
+ * Converts a date + time string (as entered by the user) into an ISO UTC string,
+ * interpreting the wall-clock time as being in `timezone` rather than the browser's
+ * local timezone.
+ *
+ * @param dateStr - Date in "YYYY-MM-DD" format.
+ * @param timeStr - Time in "HH:mm" format (as produced by `<input type="time">`).
+ * @param timezone - IANA timezone identifier (e.g. "America/New_York").
+ */
+function toIsoInTimezone(dateStr: string, timeStr: string, timezone: string): string | null {
+  if (!dateStr) return null;
+  // Append seconds to satisfy the ISO 8601 full-time requirement used below.
+  const timeString = (timeStr || "00:00") + ":00";
+  try {
+    // Treat the input as UTC to get a starting reference point.
+    const asUtc = new Date(`${dateStr}T${timeString}Z`);
+    if (Number.isNaN(asUtc.getTime())) return null;
+
+    // Determine what wall-clock time `timezone` shows at `asUtc`.
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(asUtc);
+    let tzHour = getIntlPartInt(parts, "hour");
+    // Intl.DateTimeFormat with hour12:false can return 24 instead of 0 at midnight.
+    if (tzHour === 24) tzHour = 0;
+
+    // Re-express that wall-clock reading as a UTC timestamp.
+    const tzWallAsUtc = new Date(
+      Date.UTC(
+        getIntlPartInt(parts, "year"),
+        getIntlPartInt(parts, "month") - 1,
+        getIntlPartInt(parts, "day"),
+        tzHour,
+        getIntlPartInt(parts, "minute"),
+        getIntlPartInt(parts, "second"),
+      ),
+    );
+
+    // The timezone's offset at this instant, then shift to get the true UTC time.
+    const offsetMs = asUtc.getTime() - tzWallAsUtc.getTime();
+    return new Date(asUtc.getTime() + offsetMs).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Formats a UTC ISO string as separate date ("YYYY-MM-DD") and time ("HH:mm") parts
+ * expressed in the given IANA `timezone`.
+ */
+function toDateInputPartsInTimezone(value: string | null, timezone: string): { date: string; time: string } {
+  if (!value) return { date: "", time: "" };
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: "", time: "" };
+  try {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    const parts = fmt.formatToParts(date);
+    let hour = getIntlPart(parts, "hour");
+    // Intl.DateTimeFormat with hour12:false can return "24" instead of "00" at midnight.
+    if (hour === "24") hour = "00";
+    const year = getIntlPart(parts, "year");
+    if (!year) return { date: "", time: "" };
+    return {
+      date: `${year}-${getIntlPart(parts, "month")}-${getIntlPart(parts, "day")}`,
+      time: `${hour}:${getIntlPart(parts, "minute")}`,
+    };
+  } catch {
+    return { date: "", time: "" };
+  }
+}
+
+/** Returns a `datetime-local` input value ("YYYY-MM-DDTHH:mm") in the given timezone. */
+function toDateTimeInputValueInTimezone(value: string | null, timezone: string): string {
+  const parts = toDateInputPartsInTimezone(value, timezone);
+  return parts.date && parts.time ? `${parts.date}T${parts.time}` : "";
+}
+
 function formatElapsedShort(ms: number) {
   const safeMs = Math.max(0, ms);
   const totalSeconds = Math.floor(safeMs / 1000);
@@ -2572,133 +2738,427 @@ function ScheduledTaskPanel({
   deleting,
   error,
   instruction,
+  name,
+  description,
+  taskType,
   intervalMinutes,
+  cronExpression,
+  onceRunAt,
+  startsAtDate,
+  startsAtTime,
+  endsAtDate,
+  endsAtTime,
+  timezone,
+  model,
+  agent,
+  maxRuns,
+  runTimeoutMinutes,
+  retryCount,
+  retryBackoffMinutes,
+  heartbeatEnabled,
+  goalDefinition,
+  autoDisableOnGoalMet,
+  notificationUrl,
   enabled,
   task,
+  tasks,
   runs,
+  previewRuns,
+  runtimeModels,
+  runtimeAgents,
+  onNewTask,
+  onSelectTask,
+  onNameChange,
+  onDescriptionChange,
+  onTaskTypeChange,
   onInstructionChange,
   onIntervalChange,
+  onCronExpressionChange,
+  onOnceRunAtChange,
+  onStartsAtDateChange,
+  onStartsAtTimeChange,
+  onEndsAtDateChange,
+  onEndsAtTimeChange,
+  onTimezoneChange,
+  onModelChange,
+  onAgentChange,
+  onMaxRunsChange,
+  onRunTimeoutMinutesChange,
+  onRetryCountChange,
+  onRetryBackoffMinutesChange,
+  onHeartbeatEnabledChange,
+  onGoalDefinitionChange,
+  onAutoDisableOnGoalMetChange,
+  onNotificationUrlChange,
   onEnabledChange,
   onSave,
   onRunNow,
   onDelete,
+  onPauseResume,
+  onPreview,
 }: {
   loading: boolean;
   saving: boolean;
   running: boolean;
   deleting: boolean;
   error: string | null;
+  name: string;
+  description: string;
   instruction: string;
+  taskType: ScheduledTask["taskType"];
   intervalMinutes: number;
+  cronExpression: string;
+  onceRunAt: string;
+  startsAtDate: string;
+  startsAtTime: string;
+  endsAtDate: string;
+  endsAtTime: string;
+  timezone: string;
+  model: string;
+  agent: string;
+  maxRuns: string;
+  runTimeoutMinutes: string;
+  retryCount: string;
+  retryBackoffMinutes: string;
+  heartbeatEnabled: boolean;
+  goalDefinition: string;
+  autoDisableOnGoalMet: boolean;
+  notificationUrl: string;
   enabled: boolean;
   task: ScheduledTask | null;
+  tasks: ScheduledTask[];
   runs: ScheduledTaskRun[];
+  previewRuns: string[];
+  runtimeModels: RuntimeModelOption[];
+  runtimeAgents: RuntimeAgentOption[];
+  onNewTask: () => void;
+  onSelectTask: (task: ScheduledTask) => void;
+  onNameChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+  onTaskTypeChange: (value: ScheduledTask["taskType"]) => void;
   onInstructionChange: (value: string) => void;
   onIntervalChange: (value: number) => void;
+  onCronExpressionChange: (value: string) => void;
+  onOnceRunAtChange: (value: string) => void;
+  onStartsAtDateChange: (value: string) => void;
+  onStartsAtTimeChange: (value: string) => void;
+  onEndsAtDateChange: (value: string) => void;
+  onEndsAtTimeChange: (value: string) => void;
+  onTimezoneChange: (value: string) => void;
+  onModelChange: (value: string) => void;
+  onAgentChange: (value: string) => void;
+  onMaxRunsChange: (value: string) => void;
+  onRunTimeoutMinutesChange: (value: string) => void;
+  onRetryCountChange: (value: string) => void;
+  onRetryBackoffMinutesChange: (value: string) => void;
+  onHeartbeatEnabledChange: (value: boolean) => void;
+  onGoalDefinitionChange: (value: string) => void;
+  onAutoDisableOnGoalMetChange: (value: boolean) => void;
+  onNotificationUrlChange: (value: string) => void;
   onEnabledChange: (value: boolean) => void;
   onSave: () => Promise<void>;
   onRunNow: () => Promise<void>;
   onDelete: () => Promise<void>;
+  onPauseResume: () => Promise<void>;
+  onPreview: () => Promise<void>;
 }) {
   const taskTone = task ? taskStatusTone(task.lastStatus) : "idle";
+  const visibleRuns = task ? runs.filter((run) => run.taskId === task.id) : runs;
 
   return (
-    <details className="task-panel">
-      <summary>
-        Scheduled task {task ? "configured" : "not configured"}
-        {task ? ` (${task.lastStatus})` : ""}
-      </summary>
-      <div className="task-panel-content">
-        {loading ? <p className="task-muted">Loading task...</p> : null}
-        {error ? <p className="error">{error}</p> : null}
-
-        {task ? (
-          <div className="task-overview">
-            <span className={`task-status-badge ${taskTone}`}>{task.enabled ? "Enabled" : "Paused"}</span>
-            <span className={`task-status-badge ${taskTone}`}>Last {task.lastStatus.toLowerCase()}</span>
-            <span className="task-status-badge idle">Next {formatRelativeTaskTime(task.nextRunAt)}</span>
-            <span className="task-status-badge idle">Last run {formatRelativeTaskTime(task.lastRunAt)}</span>
+    <section className="tasks-workspace">
+      <div className="tasks-shell">
+        <aside className="tasks-browser">
+          <div className="tasks-browser-head">
+            <div>
+              <p className="tasks-kicker">Automation Deck</p>
+              <h2>Tasks</h2>
+              <small>Review older jobs, reopen them, or draft a fresh one.</small>
+            </div>
+            <button type="button" className="secondary-button" onClick={onNewTask}>
+              New task
+            </button>
           </div>
-        ) : null}
 
-        <label>
-          <span>Instruction</span>
-          <textarea
-            value={instruction}
-            onChange={(event) => onInstructionChange(event.target.value)}
-            placeholder="Instruction to run in dedicated task session"
-          />
-        </label>
+          {loading ? <p className="task-muted">Loading tasks...</p> : null}
+          {error ? <p className="error">{error}</p> : null}
 
-        <div className="task-inline-fields">
-          <label>
-            <span>Interval (minutes)</span>
-            <input
-              type="number"
-              min={5}
-              value={intervalMinutes}
-              onChange={(event) => onIntervalChange(Number(event.target.value) || 5)}
-            />
-          </label>
-          <label className="task-enabled">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(event) => onEnabledChange(event.target.checked)}
-            />
-            <span>Enabled</span>
-          </label>
-        </div>
+          <div className="tasks-browser-list">
+            {tasks.length === 0 ? (
+              <div className="tasks-browser-empty">
+                <strong>No saved tasks yet</strong>
+                <p>Start with a new task and it will appear here for later edits.</p>
+              </div>
+            ) : (
+              tasks.map((item) => {
+                const itemRuns = runs.filter((run) => run.taskId === item.id);
+                const latestRun = itemRuns[0] ?? null;
+                const tone = taskStatusTone(item.lastStatus);
 
-        <div className="task-actions">
-          <button type="button" disabled={saving} onClick={() => void onSave()}>
-            {saving ? "Saving..." : "Save task"}
-          </button>
-          <button type="button" disabled={running || !task} onClick={() => void onRunNow()}>
-            {running ? "Running..." : "Run now"}
-          </button>
-          <button
-            type="button"
-            className="danger"
-            disabled={deleting || !task}
-            onClick={() => void onDelete()}
-          >
-            {deleting ? "Deleting..." : "Delete"}
-          </button>
-        </div>
-
-        {task ? (
-          <div className="task-status-meta">
-            <small>next: {task.nextRunAt ? new Date(task.nextRunAt).toLocaleString() : "-"}</small>
-            <small>last: {task.lastRunAt ? new Date(task.lastRunAt).toLocaleString() : "-"}</small>
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`task-browser-item ${task?.id === item.id ? "active" : ""}`}
+                    onClick={() => onSelectTask(item)}
+                  >
+                    <div className="task-browser-item-top">
+                      <strong>{item.name || `Task ${item.id}`}</strong>
+                      <span className={`task-status-badge ${tone}`}>{item.lastStatus}</span>
+                    </div>
+                    <p>{item.description || item.instruction || "No description"}</p>
+                    <div className="task-browser-item-meta">
+                      <span>{item.taskType}</span>
+                      <span>{item.enabled ? "enabled" : "paused"}</span>
+                      <span>{item.nextRunAt ? `next ${formatRelativeTaskTime(item.nextRunAt)}` : "no next run"}</span>
+                    </div>
+                    {latestRun ? (
+                      <small>
+                        Latest run {latestRun.startedAt ? new Date(latestRun.startedAt).toLocaleString() : "Unknown time"}
+                      </small>
+                    ) : (
+                      <small>No runs yet</small>
+                    )}
+                  </button>
+                );
+              })
+            )}
           </div>
-        ) : null}
+        </aside>
 
-        <div className="task-runs">
-          <strong>Recent runs</strong>
-          {runs.length === 0 ? (
-            <p className="task-muted">No runs yet.</p>
-          ) : (
-            <ul>
-              {runs.slice(0, 8).map((run) => (
-                <li key={run.id} className={`task-run-item ${taskStatusTone(run.status)}`}>
-                  <div className="task-run-item-main">
-                    <strong>{run.trigger === "manual" ? "Manual run" : "Scheduled run"}</strong>
-                    <small>{run.startedAt ? new Date(run.startedAt).toLocaleString() : "Unknown time"}</small>
-                  </div>
-                  <div className="task-run-item-meta">
-                    <span className={`task-status-badge ${taskStatusTone(run.status)}`}>{run.status}</span>
-                    <span className="task-status-badge idle">{run.heartbeatLoaded ? "heartbeat loaded" : "heartbeat missing"}</span>
-                  </div>
-                  {run.outputPreview ? <p>{run.outputPreview}</p> : null}
-                  {run.error ? <p className="task-error-inline">{run.error}</p> : null}
-                </li>
-              ))}
-            </ul>
-          )}
+        <div className="tasks-editor">
+          <div className="tasks-editor-head">
+            <div>
+              <p className="tasks-kicker">{task ? "Editing task" : "Drafting task"}</p>
+              <h3>{task ? task.name || `Task ${task.id}` : "New scheduled task"}</h3>
+              <small>Tasks run in dedicated task sessions. Previous tasks stay editable here.</small>
+            </div>
+            {task ? (
+              <div className="task-overview">
+                <span className={`task-status-badge ${taskTone}`}>{task.enabled ? "Enabled" : "Paused"}</span>
+                <span className={`task-status-badge ${taskTone}`}>Last {task.lastStatus.toLowerCase()}</span>
+                <span className="task-status-badge idle">Next {formatRelativeTaskTime(task.nextRunAt)}</span>
+                <span className="task-status-badge idle">Last run {formatRelativeTaskTime(task.lastRunAt)}</span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="tasks-editor-grid">
+            <div className="tasks-editor-card">
+              <div className="task-inline-fields">
+                <label>
+                  <span>Name</span>
+                  <input value={name} onChange={(event) => onNameChange(event.target.value)} />
+                </label>
+                <label>
+                  <span>Type</span>
+                  <select value={taskType} onChange={(event) => onTaskTypeChange(event.target.value as ScheduledTask["taskType"])}>
+                    <option value="interval">Interval</option>
+                    <option value="cron">Cron</option>
+                    <option value="once">One-time</option>
+                    <option value="goal">Goal</option>
+                  </select>
+                </label>
+              </div>
+
+              <label>
+                <span>Description</span>
+                <input value={description} onChange={(event) => onDescriptionChange(event.target.value)} placeholder="Optional notes" />
+              </label>
+
+              <label>
+                <span>Instruction</span>
+                <textarea
+                  value={instruction}
+                  onChange={(event) => onInstructionChange(event.target.value)}
+                  placeholder="Instruction to run in dedicated task session"
+                />
+              </label>
+
+              <div className="task-inline-fields">
+                {taskType === "interval" || taskType === "goal" ? <label>
+                  <span>Interval (minutes)</span>
+                  <input
+                    type="number"
+                    min={5}
+                    value={intervalMinutes}
+                    onChange={(event) => onIntervalChange(Number(event.target.value) || 5)}
+                  />
+                </label> : null}
+                {taskType === "cron" ? <label>
+                  <span>Cron expression</span>
+                  <input value={cronExpression} onChange={(event) => onCronExpressionChange(event.target.value)} placeholder="0 9 * * *" />
+                </label> : null}
+                {taskType === "once" ? <label>
+                  <span>Run once at</span>
+                  <input type="datetime-local" value={onceRunAt} onChange={(event) => onOnceRunAtChange(event.target.value)} />
+                </label> : null}
+                <label>
+                  <span>Timezone</span>
+                  <input value={timezone} onChange={(event) => onTimezoneChange(event.target.value)} placeholder="UTC" />
+                </label>
+              </div>
+
+              <div className="task-inline-fields">
+                <label>
+                  <span>Start date</span>
+                  <input type="date" value={startsAtDate} onChange={(event) => onStartsAtDateChange(event.target.value)} />
+                </label>
+                <label>
+                  <span>Start time</span>
+                  <input type="time" value={startsAtTime} onChange={(event) => onStartsAtTimeChange(event.target.value)} />
+                </label>
+                <label>
+                  <span>End date</span>
+                  <input type="date" value={endsAtDate} onChange={(event) => onEndsAtDateChange(event.target.value)} />
+                </label>
+                <label>
+                  <span>End time</span>
+                  <input type="time" value={endsAtTime} onChange={(event) => onEndsAtTimeChange(event.target.value)} />
+                </label>
+              </div>
+
+              <div className="task-inline-fields">
+                <label>
+                  <span>Model</span>
+                  <select value={model} onChange={(event) => onModelChange(event.target.value)}>
+                    <option value="">Server default</option>
+                    {runtimeModels.map((item) => <option key={item.id} value={item.id}>{item.providerName} / {item.name}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Agent</span>
+                  <select value={agent} onChange={(event) => onAgentChange(event.target.value)}>
+                    <option value="">Server default</option>
+                    {runtimeAgents.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              <div className="task-inline-fields">
+                <label>
+                  <span>Max runs</span>
+                  <input type="number" min={0} value={maxRuns} onChange={(event) => onMaxRunsChange(event.target.value)} placeholder="unlimited" />
+                </label>
+                <label>
+                  <span>Timeout minutes</span>
+                  <input type="number" min={1} value={runTimeoutMinutes} onChange={(event) => onRunTimeoutMinutesChange(event.target.value)} placeholder="none" />
+                </label>
+                <label>
+                  <span>Retries</span>
+                  <input type="number" min={0} value={retryCount} onChange={(event) => onRetryCountChange(event.target.value)} />
+                </label>
+                <label>
+                  <span>Retry backoff</span>
+                  <input type="number" min={1} value={retryBackoffMinutes} onChange={(event) => onRetryBackoffMinutesChange(event.target.value)} placeholder="minutes" />
+                </label>
+                <label className="task-enabled">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(event) => onEnabledChange(event.target.checked)}
+                  />
+                  <span>Enabled</span>
+                </label>
+                <label className="task-enabled">
+                  <input type="checkbox" checked={heartbeatEnabled} onChange={(event) => onHeartbeatEnabledChange(event.target.checked)} />
+                  <span>Use heartbeat file</span>
+                </label>
+              </div>
+
+              {taskType === "goal" ? <label>
+                <span>Goal definition</span>
+                <textarea value={goalDefinition} onChange={(event) => onGoalDefinitionChange(event.target.value)} placeholder="Describe the objective. The agent will report GOAL_MET: yes/no." />
+              </label> : null}
+
+              {taskType === "goal" ? <label className="task-enabled">
+                <input
+                  type="checkbox"
+                  checked={autoDisableOnGoalMet}
+                  onChange={(event) => onAutoDisableOnGoalMetChange(event.target.checked)}
+                />
+                <span>Pause when goal is met</span>
+              </label> : null}
+
+              <label>
+                <span>Notification URL</span>
+                <input value={notificationUrl} onChange={(event) => onNotificationUrlChange(event.target.value)} placeholder="Optional ntfy topic URL" />
+              </label>
+
+              <div className="task-actions">
+                <button type="button" className="secondary-button" onClick={() => void onPreview()}>
+                  Preview next runs
+                </button>
+                <button type="button" disabled={saving} onClick={() => void onSave()}>
+                  {saving ? "Saving..." : "Save task"}
+                </button>
+                <button type="button" disabled={running || !task} onClick={() => void onRunNow()}>
+                  {running ? "Running..." : "Run now"}
+                </button>
+                <button type="button" disabled={saving || !task} onClick={() => void onPauseResume()}>
+                  {task?.enabled ? "Pause" : "Resume"}
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={deleting || !task}
+                  onClick={() => void onDelete()}
+                >
+                  {deleting ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+
+              {previewRuns.length > 0 ? (
+                <div className="task-preview-strip">
+                  {previewRuns.map((run) => <small key={run} className="task-status-badge idle">{new Date(run).toLocaleString()}</small>)}
+                </div>
+              ) : null}
+
+              {task ? (
+                <div className="task-status-meta">
+                  <small>next: {task.nextRunAt ? new Date(task.nextRunAt).toLocaleString() : "-"}</small>
+                  <small>last: {task.lastRunAt ? new Date(task.lastRunAt).toLocaleString() : "-"}</small>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="tasks-editor-card tasks-runs-card">
+              <div className="tasks-runs-head">
+                <div>
+                  <strong>Recent runs</strong>
+                  <small>Execution history for the selected task only.</small>
+                </div>
+              </div>
+              <div className="task-runs">
+                {visibleRuns.length === 0 ? (
+                  <p className="task-muted">No runs yet.</p>
+                ) : (
+                  <ul>
+                    {visibleRuns.slice(0, 12).map((run) => (
+                      <li key={run.id} className={`task-run-item ${taskStatusTone(run.status)}`}>
+                        <div className="task-run-item-main">
+                          <strong>#{run.runNumber} {run.trigger === "manual" ? "Manual run" : "Scheduled run"}</strong>
+                          <small>{run.startedAt ? new Date(run.startedAt).toLocaleString() : "Unknown time"}</small>
+                        </div>
+                        <div className="task-run-item-meta">
+                          <span className={`task-status-badge ${taskStatusTone(run.status)}`}>{run.status}</span>
+                          <span className="task-status-badge idle">{run.heartbeatLoaded ? "heartbeat loaded" : "no heartbeat"}</span>
+                          {run.modelUsed ? <span className="task-status-badge idle">{run.modelUsed}</span> : null}
+                          {run.agentUsed ? <span className="task-status-badge idle">{run.agentUsed}</span> : null}
+                          {run.goalAttempted ? <span className="task-status-badge idle">goal {run.goalMet ? "met" : "open"}</span> : null}
+                        </div>
+                        {run.outputPreview ? <p>{run.outputPreview}</p> : null}
+                        {run.error ? <p className="task-error-inline">{run.error}</p> : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </details>
+    </section>
   );
 }
 
@@ -2772,6 +3232,7 @@ function parseSlashCommand(input: string): { command: string; argumentsList: str
 
 export function App() {
   const PROJECTS_PAGE_SIZE = 120;
+  const SESSION_LIST_REFRESH_MS = 15000;
   const DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY = "opencode.desktopSidebarWidth";
   const fixtureMode = useMemo(() => resolveDevFixtureMode(), []);
 
@@ -2822,6 +3283,7 @@ export function App() {
   const [composerValue, setComposerValue] = useState("");
   const [sending, setSending] = useState(false);
   const [aborting, setAborting] = useState(false);
+  const [abortSuppressStreaming, setAbortSuppressStreaming] = useState(false);
   const [runIntentActive, setRunIntentActive] = useState(false);
   const [stopFeedbackLabel, setStopFeedbackLabel] = useState<string | null>(null);
   const [stopFeedbackUntilMs, setStopFeedbackUntilMs] = useState<number | null>(null);
@@ -2852,10 +3314,32 @@ export function App() {
   const [taskDeleting, setTaskDeleting] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [scheduledTask, setScheduledTask] = useState<ScheduledTask | null>(null);
+  const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
   const [scheduledRuns, setScheduledRuns] = useState<ScheduledTaskRun[]>([]);
   const [taskTimelineEvents, setTaskTimelineEvents] = useState<TimelineEvent[]>([]);
+  const [taskNameInput, setTaskNameInput] = useState("Scheduled task");
+  const [taskDescriptionInput, setTaskDescriptionInput] = useState("");
+  const [taskTypeInput, setTaskTypeInput] = useState<ScheduledTask["taskType"]>("interval");
   const [taskInstructionInput, setTaskInstructionInput] = useState("");
   const [taskIntervalInput, setTaskIntervalInput] = useState(15);
+  const [taskCronInput, setTaskCronInput] = useState("0 9 * * *");
+  const [taskOnceInput, setTaskOnceInput] = useState("");
+  const [taskStartsDateInput, setTaskStartsDateInput] = useState("");
+  const [taskStartsTimeInput, setTaskStartsTimeInput] = useState("");
+  const [taskEndsDateInput, setTaskEndsDateInput] = useState("");
+  const [taskEndsTimeInput, setTaskEndsTimeInput] = useState("");
+  const [taskTimezoneInput, setTaskTimezoneInput] = useState("UTC");
+  const [taskModelInput, setTaskModelInput] = useState("");
+  const [taskAgentInput, setTaskAgentInput] = useState("");
+  const [taskMaxRunsInput, setTaskMaxRunsInput] = useState("");
+  const [taskTimeoutInput, setTaskTimeoutInput] = useState("");
+  const [taskRetryCountInput, setTaskRetryCountInput] = useState("0");
+  const [taskRetryBackoffInput, setTaskRetryBackoffInput] = useState("5");
+  const [taskHeartbeatInput, setTaskHeartbeatInput] = useState(true);
+  const [taskGoalInput, setTaskGoalInput] = useState("");
+  const [taskAutoDisableOnGoalMetInput, setTaskAutoDisableOnGoalMetInput] = useState(true);
+  const [taskNotificationUrlInput, setTaskNotificationUrlInput] = useState("");
+  const [taskPreviewRuns, setTaskPreviewRuns] = useState<string[]>([]);
   const [taskEnabledInput, setTaskEnabledInput] = useState(true);
 
   const [opencodeStatus, setOpencodeStatus] = useState("checking...");
@@ -2895,6 +3379,16 @@ export function App() {
   });
   const [isChatNearBottom, setIsChatNearBottom] = useState(true);
   const [unreadEntryId, setUnreadEntryId] = useState<string | null>(null);
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installingApp, setInstallingApp] = useState(false);
+  const [appInstalled, setAppInstalled] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    const nav = window.navigator as Navigator & { standalone?: boolean };
+    return window.matchMedia("(display-mode: standalone)").matches || nav.standalone === true;
+  });
   const [isMobileViewport, setIsMobileViewport] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 720px)").matches
   );
@@ -2913,11 +3407,17 @@ export function App() {
   });
   const [desktopProjectControlsCollapsed, setDesktopProjectControlsCollapsed] = useState(true);
   const [desktopChatToolbarCollapsed, setDesktopChatToolbarCollapsed] = useState(true);
-  const [activeMainView, setActiveMainView] = useState<"chat" | "files">("chat");
+  const [activeMainView, setActiveMainView] = useState<"chat" | "files" | "tasks">("chat");
   const [mobileProjectListOpen, setMobileProjectListOpen] = useState(false);
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileNewProjectOpen, setMobileNewProjectOpen] = useState(false);
   const [clockTick, setClockTick] = useState(() => Date.now());
+  const manualInstallMessage = getManualInstallMessage();
+  const installMessage = appInstalled
+    ? "This app is already installed and can launch in standalone mode."
+    : deferredInstallPrompt
+    ? "Install this app for quicker launch, home screen access, and offline shell support."
+    : manualInstallMessage;
   const suggestedProjectRoot = useMemo(
     () => getSuggestedProjectRoot(projects, activeProjectId),
     [projects, activeProjectId]
@@ -2938,6 +3438,7 @@ export function App() {
   const firstMessageMarkerProjectsRef = useRef<Set<string>>(new Set());
   const chatBodyRef = useRef<HTMLElement | null>(null);
   const timelineEntryRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const latestReadEntryIdByChatRef = useRef<Record<string, string>>({});
   const pendingOpenScrollRef = useRef<string | null>(null);
   const previousChatKeyRef = useRef<string | null>(null);
@@ -3027,6 +3528,64 @@ export function App() {
     setExpandedMessageEntries({});
     setExpandedPartEntries({});
     previousActivityEntriesRef.current = [];
+  }
+
+  function resetTaskForm() {
+    setScheduledTask(null);
+    setScheduledRuns([]);
+    setTaskNameInput("Scheduled task");
+    setTaskDescriptionInput("");
+    setTaskTypeInput("interval");
+    setTaskInstructionInput("");
+    setTaskIntervalInput(15);
+    setTaskCronInput("0 9 * * *");
+    setTaskOnceInput("");
+    setTaskStartsDateInput("");
+    setTaskStartsTimeInput("");
+    setTaskEndsDateInput("");
+    setTaskEndsTimeInput("");
+    setTaskTimezoneInput(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+    setTaskModelInput("");
+    setTaskAgentInput("");
+    setTaskMaxRunsInput("");
+    setTaskTimeoutInput("");
+    setTaskRetryCountInput("0");
+    setTaskRetryBackoffInput("5");
+    setTaskHeartbeatInput(true);
+    setTaskGoalInput("");
+    setTaskAutoDisableOnGoalMetInput(true);
+    setTaskNotificationUrlInput("");
+    setTaskPreviewRuns([]);
+    setTaskEnabledInput(true);
+  }
+
+  function populateTaskForm(task: ScheduledTask) {
+    setScheduledTask(task);
+    setTaskNameInput(task.name || "Scheduled task");
+    setTaskDescriptionInput(task.description ?? "");
+    setTaskTypeInput(task.taskType || "interval");
+    setTaskInstructionInput(task.instruction);
+    setTaskIntervalInput(task.intervalMinutes || 15);
+    setTaskCronInput(task.cronExpression ?? "0 9 * * *");
+    setTaskOnceInput(toDateTimeInputValueInTimezone(task.onceRunAt, task.timezone || "UTC"));
+    const startsAtParts = toDateInputPartsInTimezone(task.startsAt, task.timezone || "UTC");
+    const endsAtParts = toDateInputPartsInTimezone(task.endsAt, task.timezone || "UTC");
+    setTaskStartsDateInput(startsAtParts.date);
+    setTaskStartsTimeInput(startsAtParts.time);
+    setTaskEndsDateInput(endsAtParts.date);
+    setTaskEndsTimeInput(endsAtParts.time);
+    setTaskTimezoneInput(task.timezone || "UTC");
+    setTaskModelInput(task.model ?? "");
+    setTaskAgentInput(task.agent ?? "");
+    setTaskMaxRunsInput(task.maxRuns === null ? "" : String(task.maxRuns));
+    setTaskTimeoutInput(task.runTimeoutMinutes === null ? "" : String(task.runTimeoutMinutes));
+    setTaskRetryCountInput(String(task.retryCount ?? 0));
+    setTaskRetryBackoffInput(String(task.retryBackoffMinutes ?? 5));
+    setTaskHeartbeatInput(task.heartbeatEnabled);
+    setTaskGoalInput(task.goalDefinition ?? "");
+    setTaskAutoDisableOnGoalMetInput(task.autoDisableOnGoalMet);
+    setTaskNotificationUrlInput(task.notificationUrl ?? "");
+    setTaskEnabledInput(task.enabled);
   }
 
   function focusSchedulerCard() {
@@ -3392,6 +3951,10 @@ export function App() {
   }, [availableCommands, commandSearch]);
   const preferredProjectRoot = normalizeProjectRootPath(suggestedProjectRoot || defaultProjectRoot);
   const hasStreamingActivity = useMemo(() => {
+    if (abortSuppressStreaming) {
+      return false;
+    }
+
     let latestAssistantTextMs = 0;
     let latestIntermediateAssistantMs = 0;
 
@@ -3413,7 +3976,7 @@ export function App() {
     }
 
     return latestIntermediateAssistantMs > latestAssistantTextMs;
-  }, [messages]);
+  }, [messages, abortSuppressStreaming]);
   const hasActiveRun =
     (fixtureMode === "run-active" || Boolean(activeProject)) &&
     (sending ||
@@ -3510,6 +4073,14 @@ export function App() {
             startedAt,
             finishedAt,
             heartbeatLoaded: fixtureMode === "task-run-success",
+            runNumber: 1,
+            modelUsed: null,
+            agentUsed: null,
+            timeoutUsed: null,
+            goalAttempted: false,
+            goalMet: null,
+            goalOutput: null,
+            retryAttempt: 0,
             outputPreview:
               fixtureMode === "task-run-success"
                 ? "Checked repository state and posted a clean status update."
@@ -3688,6 +4259,13 @@ export function App() {
     }
     setRunIntentActive(false);
   }, [aborting, activeProject?.sessionStatus, fixtureMode, hasStreamingActivity, runIntentActive, sending, streamStatus]);
+
+  useEffect(() => {
+    const el = composerTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [composerValue]);
 
   useEffect(() => {
     const activityEntries = renderedTimelineEntries.filter(
@@ -4022,7 +4600,7 @@ export function App() {
 
   async function loadMessages(
     projectId: string,
-    options?: { silent?: boolean }
+    options?: { silent?: boolean; sessionId?: string }
   ) {
     const requestId = messageLoadRequestRef.current + 1;
     messageLoadRequestRef.current = requestId;
@@ -4033,12 +4611,15 @@ export function App() {
     }
     setProjectError(null);
     try {
-      const messageResult = await fetchMessages(projectId);
+      const sessionId = options && "sessionId" in options ? options.sessionId : activeSessionId ?? undefined;
+      const messageResult = await fetchMessages(projectId, sessionId);
       if (requestId !== messageLoadRequestRef.current) {
         return;
       }
-      setActiveSessionId(messageResult.sessionId);
-      updateProjectSessionSelection(projectId, messageResult.sessionId);
+      if (!options?.sessionId) {
+        setActiveSessionId(messageResult.sessionId);
+        updateProjectSessionSelection(projectId, messageResult.sessionId);
+      }
       setMessages(messageResult.messages);
       setTaskTimelineEvents(messageResult.timelineEvents ?? []);
     } catch (error) {
@@ -4053,7 +4634,10 @@ export function App() {
       const pendingProjectId = pendingMessageRefreshRef.current;
       if (pendingProjectId && pendingProjectId === projectId) {
         pendingMessageRefreshRef.current = null;
-        void loadMessages(projectId, { silent: true });
+        void Promise.all([
+          loadMessages(projectId, { silent: true }),
+          loadProjectSessions(projectId, { silent: true }),
+        ]);
       }
       if (requestId === messageLoadRequestRef.current) {
         if (!options?.silent) {
@@ -4164,30 +4748,37 @@ export function App() {
     }
   }
 
-  async function loadTaskDetails(projectId: string) {
+  async function loadTaskDetails(projectId: string, preferredTaskId?: string | null) {
     const requestId = taskLoadRequestRef.current + 1;
     taskLoadRequestRef.current = requestId;
     setTaskLoading(true);
     setTaskError(null);
     try {
-      const [taskResult, runsResult] = await Promise.all([
-        fetchScheduledTask(projectId),
-        fetchScheduledTaskRuns(projectId, 20),
-      ]);
+      const taskResult = await fetchScheduledTask(projectId);
       if (requestId !== taskLoadRequestRef.current) {
         return;
       }
-      setScheduledTask(taskResult.task);
+      const tasks = taskResult.tasks ?? (taskResult.task ? [taskResult.task] : []);
+      const selectedTask =
+        tasks.find((task) => task.id === preferredTaskId)
+        ?? tasks.find((task) => task.id === scheduledTask?.id)
+        ?? taskResult.task
+        ?? tasks[0]
+        ?? null;
+      const runsResult = selectedTask
+        ? await fetchScheduledTaskRuns(projectId, 20, selectedTask.id)
+        : { runs: [] };
+      if (requestId !== taskLoadRequestRef.current) {
+        return;
+      }
+      setScheduledTasks(tasks);
+      setScheduledTask(selectedTask);
       setScheduledRuns(runsResult.runs);
 
-      if (taskResult.task) {
-        setTaskInstructionInput(taskResult.task.instruction);
-        setTaskIntervalInput(taskResult.task.intervalMinutes);
-        setTaskEnabledInput(taskResult.task.enabled);
+      if (selectedTask) {
+        populateTaskForm(selectedTask);
       } else {
-        setTaskInstructionInput("");
-        setTaskIntervalInput(15);
-        setTaskEnabledInput(true);
+        resetTaskForm();
       }
     } catch (error) {
       if (requestId !== taskLoadRequestRef.current) {
@@ -4195,6 +4786,7 @@ export function App() {
       }
       setTaskError(error instanceof Error ? error.message : "Failed to load scheduled task");
       setScheduledTask(null);
+      setScheduledTasks([]);
       setScheduledRuns([]);
     } finally {
       if (requestId === taskLoadRequestRef.current) {
@@ -4259,28 +4851,35 @@ export function App() {
     );
   }
 
-  async function loadProjectSessions(projectId: string) {
+  async function loadProjectSessions(projectId: string, options?: { silent?: boolean }) {
+    const silent = options?.silent ?? false;
     const requestId = sessionLoadRequestRef.current + 1;
     sessionLoadRequestRef.current = requestId;
-    setSessionLoading(true);
-    setSessionError(null);
+    if (!silent) {
+      setSessionLoading(true);
+      setSessionError(null);
+    }
     try {
       const result = await fetchProjectSessions(projectId);
       if (requestId !== sessionLoadRequestRef.current) {
         return;
       }
       setProjectSessions(result.sessions);
-      setActiveSessionId(result.activeSessionId);
-      updateProjectSessionSelection(projectId, result.activeSessionId);
+      if (!silent) {
+        setActiveSessionId(result.activeSessionId);
+        updateProjectSessionSelection(projectId, result.activeSessionId);
+      }
     } catch (error) {
       if (requestId !== sessionLoadRequestRef.current) {
         return;
       }
-      setSessionError(error instanceof Error ? error.message : "Failed to load sessions");
-      setProjectSessions([]);
-      setActiveSessionId(null);
+      if (!silent) {
+        setSessionError(error instanceof Error ? error.message : "Failed to load sessions");
+        setProjectSessions([]);
+        setActiveSessionId(null);
+      }
     } finally {
-      if (requestId === sessionLoadRequestRef.current) {
+      if (!silent && requestId === sessionLoadRequestRef.current) {
         setSessionLoading(false);
       }
     }
@@ -4320,13 +4919,36 @@ export function App() {
     setTaskSaving(true);
     setTaskError(null);
     try {
+      const [onceDatePart, onceTimePart] = taskOnceInput.split("T");
       const response = await saveScheduledTask(activeProjectId, {
+        id: scheduledTask?.id,
+        name: taskNameInput,
+        description: taskDescriptionInput,
         instruction: taskInstructionInput,
+        taskType: taskTypeInput,
+        cronExpression: taskCronInput,
+        onceRunAt: onceDatePart
+          ? toIsoInTimezone(onceDatePart, onceTimePart ?? "00:00", taskTimezoneInput)
+          : null,
         intervalMinutes: taskIntervalInput,
+        startsAt: toIsoInTimezone(taskStartsDateInput, taskStartsTimeInput, taskTimezoneInput),
+        endsAt: toIsoInTimezone(taskEndsDateInput, taskEndsTimeInput, taskTimezoneInput),
+        timezone: taskTimezoneInput,
+        model: taskModelInput || null,
+        agent: taskAgentInput || null,
+        maxRuns: taskMaxRunsInput ? Number(taskMaxRunsInput) : null,
+        runTimeoutMinutes: taskTimeoutInput ? Number(taskTimeoutInput) : null,
+        retryCount: Number(taskRetryCountInput || "0"),
+        retryBackoffMinutes: Number(taskRetryBackoffInput || "5"),
+        heartbeatEnabled: taskHeartbeatInput,
+        goalDefinition: taskGoalInput || null,
+        autoDisableOnGoalMet: taskAutoDisableOnGoalMetInput,
+        notificationUrl: taskNotificationUrlInput || null,
         enabled: taskEnabledInput,
       });
       setScheduledTask(response.task);
-      await loadTaskDetails(activeProjectId);
+      setScheduledTasks(response.tasks ?? []);
+      await loadTaskDetails(activeProjectId, response.task.id);
       await refreshProjectsAndStatus(activeProjectId);
     } catch (error) {
       setTaskError(error instanceof Error ? error.message : "Failed to save task");
@@ -4343,9 +4965,9 @@ export function App() {
     setTaskRunning(true);
     setTaskError(null);
     try {
-      const response = await runScheduledTaskNow(activeProjectId);
+      const response = await runScheduledTaskNow(activeProjectId, scheduledTask?.id);
       setScheduledTask(response.task);
-      await loadTaskDetails(activeProjectId);
+      await loadTaskDetails(activeProjectId, response.task.id);
       await refreshProjectsAndStatus(activeProjectId);
     } catch (error) {
       setTaskError(error instanceof Error ? error.message : "Failed to run task now");
@@ -4362,18 +4984,72 @@ export function App() {
     setTaskDeleting(true);
     setTaskError(null);
     try {
-      await deleteScheduledTask(activeProjectId);
+      await deleteScheduledTask(activeProjectId, scheduledTask?.id);
       setScheduledTask(null);
       setScheduledRuns([]);
       setTaskTimelineEvents([]);
-      setTaskInstructionInput("");
-      setTaskIntervalInput(15);
-      setTaskEnabledInput(true);
+      resetTaskForm();
+      await loadTaskDetails(activeProjectId);
       await refreshProjectsAndStatus(activeProjectId);
     } catch (error) {
       setTaskError(error instanceof Error ? error.message : "Failed to delete task");
     } finally {
       setTaskDeleting(false);
+    }
+  }
+
+  async function handleSelectTask(task: ScheduledTask) {
+    populateTaskForm(task);
+    if (!activeProjectId) {
+      return;
+    }
+    try {
+      const result = await fetchScheduledTaskRuns(activeProjectId, 20, task.id);
+      setScheduledRuns(result.runs);
+    } catch {
+      setScheduledRuns([]);
+    }
+  }
+
+  async function handlePreviewTaskSchedule() {
+    if (!activeProjectId) {
+      return;
+    }
+    setTaskError(null);
+    try {
+      const [onceDatePart, onceTimePart] = taskOnceInput.split("T");
+      const result = await previewScheduledTask(activeProjectId, {
+        taskType: taskTypeInput,
+        cronExpression: taskCronInput,
+        onceRunAt: onceDatePart
+          ? toIsoInTimezone(onceDatePart, onceTimePart ?? "00:00", taskTimezoneInput)
+          : null,
+        intervalMinutes: taskIntervalInput,
+        timezone: taskTimezoneInput,
+      });
+      setTaskPreviewRuns(result.runs);
+    } catch (error) {
+      setTaskPreviewRuns([]);
+      setTaskError(error instanceof Error ? error.message : "Failed to preview schedule");
+    }
+  }
+
+  async function handlePauseResumeTask() {
+    if (!activeProjectId || !scheduledTask) {
+      return;
+    }
+    setTaskSaving(true);
+    setTaskError(null);
+    try {
+      const result = scheduledTask.enabled
+        ? await pauseScheduledTask(activeProjectId, scheduledTask.id)
+        : await resumeScheduledTask(activeProjectId, scheduledTask.id);
+      populateTaskForm(result.task);
+      await loadTaskDetails(activeProjectId, result.task.id);
+    } catch (error) {
+      setTaskError(error instanceof Error ? error.message : "Failed to update task state");
+    } finally {
+      setTaskSaving(false);
     }
   }
 
@@ -4386,7 +5062,10 @@ export function App() {
       if (messageRequestInFlightRef.current) {
         pendingMessageRefreshRef.current = projectId;
       } else {
-        void loadMessages(projectId, { silent: true });
+        void Promise.all([
+          loadMessages(projectId, { silent: true }),
+          loadProjectSessions(projectId, { silent: true }),
+        ]);
       }
       refreshDebounceRef.current = null;
     }, 700);
@@ -4493,6 +5172,42 @@ export function App() {
   }, [isAuthenticated]);
 
   useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setDeferredInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setAppInstalled(true);
+      setInstallingApp(false);
+      setDeferredInstallPrompt(null);
+    };
+
+    const displayModeQuery = window.matchMedia("(display-mode: standalone)");
+    const handleDisplayModeChange = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        setAppInstalled(true);
+        setDeferredInstallPrompt(null);
+      }
+    };
+
+    if (displayModeQuery.matches) {
+      setAppInstalled(true);
+      setDeferredInstallPrompt(null);
+    }
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+    displayModeQuery.addEventListener("change", handleDisplayModeChange);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+      displayModeQuery.removeEventListener("change", handleDisplayModeChange);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isAuthenticated || !activeProjectId) {
       taskLoadRequestRef.current += 1;
       sessionLoadRequestRef.current += 1;
@@ -4545,6 +5260,32 @@ export function App() {
   }, [isAuthenticated, activeProjectId]);
 
   useEffect(() => {
+    if (!isAuthenticated || !activeProjectId) {
+      return;
+    }
+
+    const refreshSessions = () => {
+      void loadProjectSessions(activeProjectId, { silent: true });
+    };
+
+    const intervalId = window.setInterval(refreshSessions, SESSION_LIST_REFRESH_MS);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshSessions();
+      }
+    };
+
+    window.addEventListener("focus", refreshSessions);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshSessions);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isAuthenticated, activeProjectId, SESSION_LIST_REFRESH_MS]);
+
+  useEffect(() => {
     if (!activeProjectId && activeMainView !== "chat") {
       setActiveMainView("chat");
     }
@@ -4593,7 +5334,7 @@ export function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, activeProjectId, activeSessionId]);
 
   useEffect(() => {
     const body = chatBodyRef.current;
@@ -4942,12 +5683,13 @@ export function App() {
     setMobileSettingsOpen(false);
     try {
       const result = await updateProjectSession(activeProjectId, nextSessionId);
-      setActiveSessionId(result.activeSessionId);
-      updateProjectSessionSelection(activeProjectId, result.activeSessionId);
+      const switchedSessionId = result.activeSessionId;
+      setActiveSessionId(switchedSessionId);
+      updateProjectSessionSelection(activeProjectId, switchedSessionId);
       setPendingApprovals([]);
       await Promise.all([
         loadProjectSessions(activeProjectId),
-        loadMessages(activeProjectId),
+        loadMessages(activeProjectId, { sessionId: switchedSessionId }),
         loadPendingApprovals(activeProjectId),
       ]);
       void loadDiff(activeProjectId);
@@ -4975,15 +5717,16 @@ export function App() {
     setMobileSettingsOpen(false);
     try {
       const result = await createProjectSession(activeProjectId);
-      setActiveSessionId(result.activeSessionId);
-      updateProjectSessionSelection(activeProjectId, result.activeSessionId);
+      const createdSessionId = result.activeSessionId;
+      setActiveSessionId(createdSessionId);
+      updateProjectSessionSelection(activeProjectId, createdSessionId);
       setPendingApprovals([]);
       setMessages([]);
       setTaskTimelineEvents([]);
       setDiffEntries([]);
       await Promise.all([
         loadProjectSessions(activeProjectId),
-        loadMessages(activeProjectId),
+        loadMessages(activeProjectId, { sessionId: createdSessionId }),
         loadPendingApprovals(activeProjectId),
       ]);
       void loadDiff(activeProjectId);
@@ -5024,9 +5767,10 @@ export function App() {
     setMobileSettingsOpen(false);
     try {
       const result = await deleteProjectSession(activeProjectId, activeSessionId);
+      const deletedResultSessionId = result.activeSessionId;
       setProjectSessions(result.sessions);
-      setActiveSessionId(result.activeSessionId);
-      updateProjectSessionSelection(activeProjectId, result.activeSessionId);
+      setActiveSessionId(deletedResultSessionId);
+      updateProjectSessionSelection(activeProjectId, deletedResultSessionId);
       setPendingApprovals([]);
       setMessages([]);
       setTaskTimelineEvents([]);
@@ -5039,16 +5783,16 @@ export function App() {
         const nextProjectId = await refreshProjectsAndStatus(result.activeProjectId ?? null);
         if (nextProjectId) {
           await Promise.all([
-            loadMessages(nextProjectId),
+            loadMessages(nextProjectId, { sessionId: undefined }),
             loadPendingApprovals(nextProjectId),
           ]);
           void loadDiff(nextProjectId);
         }
         return;
       }
-      if (result.activeSessionId) {
+      if (deletedResultSessionId) {
         await Promise.all([
-          loadMessages(activeProjectId),
+          loadMessages(activeProjectId, { sessionId: deletedResultSessionId }),
           loadPendingApprovals(activeProjectId),
         ]);
         void loadDiff(activeProjectId);
@@ -5200,6 +5944,7 @@ export function App() {
 
     setSending(true);
     setRunIntentActive(true);
+    setAbortSuppressStreaming(false);
     setProjectError(null);
     if (notificationsEnabled) {
       void requestBrowserNotificationPermission();
@@ -5226,6 +5971,7 @@ export function App() {
       setMessages((current) => [...current, result.message]);
       await refreshProjectsAndStatus(activeProjectId);
       await Promise.all([
+        loadProjectSessions(activeProjectId, { silent: true }),
         loadMessages(activeProjectId),
         loadPendingApprovals(activeProjectId),
       ]);
@@ -5253,7 +5999,6 @@ export function App() {
     setProjectError(null);
     try {
       await abortSession(activeProjectId);
-      setRunIntentActive(false);
       setStopFeedbackLabel("Stop requested. Waiting for final session update...");
       setStopFeedbackUntilMs(Date.now() + 4_000);
       addTelemetryMarker("chat.abort.manual", { projectId: activeProjectId });
@@ -5267,6 +6012,8 @@ export function App() {
       setProjectError(error instanceof Error ? error.message : "Failed to abort generation");
     } finally {
       setAborting(false);
+      setRunIntentActive(false);
+      setAbortSuppressStreaming(true);
     }
   }
 
@@ -5400,6 +6147,24 @@ export function App() {
     setComposerValue(nextValue);
     setCommandPickerOpen(false);
     setCommandSearch("");
+  }
+
+  async function handleInstallApp() {
+    if (!deferredInstallPrompt || appInstalled || installingApp) {
+      return;
+    }
+
+    setInstallingApp(true);
+    try {
+      await deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice;
+      if (choice.outcome !== "accepted") {
+        setInstallingApp(false);
+      }
+      setDeferredInstallPrompt(null);
+    } catch {
+      setInstallingApp(false);
+    }
   }
 
   async function handlePermissionDecision(
@@ -5881,7 +6646,7 @@ export function App() {
             ) : null}
           </div>
           <div className="chat-header-controls">
-            {activeProject ? (
+            {activeProject && !isMobileViewport ? (
               <div className="main-view-toggle" role="tablist" aria-label="Main view">
                 <button
                   type="button"
@@ -5900,6 +6665,15 @@ export function App() {
                   onClick={() => setActiveMainView("files")}
                 >
                   Files
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeMainView === "tasks"}
+                  className={activeMainView === "tasks" ? "active" : ""}
+                  onClick={() => setActiveMainView("tasks")}
+                >
+                  Tasks
                 </button>
               </div>
             ) : null}
@@ -5927,6 +6701,37 @@ export function App() {
               </button>
             ) : null}
           </div>
+          {activeProject && isMobileViewport ? (
+            <div className="main-view-toggle mobile-main-view-toggle" role="tablist" aria-label="Main view">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeMainView === "chat"}
+                className={activeMainView === "chat" ? "active" : ""}
+                onClick={() => setActiveMainView("chat")}
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeMainView === "files"}
+                className={activeMainView === "files" ? "active" : ""}
+                onClick={() => setActiveMainView("files")}
+              >
+                Files
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeMainView === "tasks"}
+                className={activeMainView === "tasks" ? "active" : ""}
+                onClick={() => setActiveMainView("tasks")}
+              >
+                Tasks
+              </button>
+            </div>
+          ) : null}
         </header>
 
         {activeProject && !isMobileViewport ? (
@@ -5934,7 +6739,7 @@ export function App() {
             <div className="chat-toolbar-head">
               <div>
                 <strong>Workspace controls</strong>
-                <span>Runtime, command help, and task scheduling</span>
+                <span>Runtime, install options, and notifications</span>
               </div>
               <button
                 type="button"
@@ -5997,34 +6802,20 @@ export function App() {
                   />
                 </div>
 
-                <div className="toolbar-card commands-card">
-                  <CommandHelpBar
-                    commands={availableCommands}
-                    onInsert={handleInsertCommand}
-                    onOpenPicker={() => setCommandPickerOpen(true)}
-                    defaultOpen={!isMobileViewport}
+                <div className="toolbar-card install-card">
+                  <InstallControls
+                    canInstall={deferredInstallPrompt !== null}
+                    installed={appInstalled}
+                    installMessage={installMessage}
+                    installing={installingApp}
+                    onInstall={() => {
+                      void handleInstallApp();
+                    }}
                   />
                 </div>
+
               </div>
 
-              <ScheduledTaskPanel
-                loading={taskLoading}
-                saving={taskSaving}
-                running={taskRunning}
-                deleting={taskDeleting}
-                error={taskError}
-                instruction={taskInstructionInput}
-                intervalMinutes={taskIntervalInput}
-                enabled={taskEnabledInput}
-                task={scheduledTask}
-                runs={scheduledRuns}
-                onInstructionChange={setTaskInstructionInput}
-                onIntervalChange={setTaskIntervalInput}
-                onEnabledChange={setTaskEnabledInput}
-                onSave={handleSaveTask}
-                onRunNow={handleRunTaskNow}
-                onDelete={handleDeleteTask}
-              />
             </div>
           </section>
         ) : null}
@@ -6233,6 +7024,84 @@ export function App() {
             </button>
           ) : null}
         </section>
+        ) : activeMainView === "tasks" ? (
+          <section className="tasks-main-view">
+            {activeProject ? (
+              <ScheduledTaskPanel
+                loading={taskLoading}
+                saving={taskSaving}
+                running={taskRunning}
+                deleting={taskDeleting}
+                error={taskError}
+                name={taskNameInput}
+                description={taskDescriptionInput}
+                instruction={taskInstructionInput}
+                taskType={taskTypeInput}
+                intervalMinutes={taskIntervalInput}
+                cronExpression={taskCronInput}
+                onceRunAt={taskOnceInput}
+                startsAtDate={taskStartsDateInput}
+                startsAtTime={taskStartsTimeInput}
+                endsAtDate={taskEndsDateInput}
+                endsAtTime={taskEndsTimeInput}
+                timezone={taskTimezoneInput}
+                model={taskModelInput}
+                agent={taskAgentInput}
+                maxRuns={taskMaxRunsInput}
+                runTimeoutMinutes={taskTimeoutInput}
+                retryCount={taskRetryCountInput}
+                retryBackoffMinutes={taskRetryBackoffInput}
+                heartbeatEnabled={taskHeartbeatInput}
+                goalDefinition={taskGoalInput}
+                autoDisableOnGoalMet={taskAutoDisableOnGoalMetInput}
+                notificationUrl={taskNotificationUrlInput}
+                enabled={taskEnabledInput}
+                task={scheduledTask}
+                tasks={scheduledTasks}
+                runs={scheduledRuns}
+                previewRuns={taskPreviewRuns}
+                runtimeModels={runtimeModels}
+                runtimeAgents={runtimeAgents}
+                onNewTask={resetTaskForm}
+                onSelectTask={(task) => {
+                  void handleSelectTask(task);
+                }}
+                onNameChange={setTaskNameInput}
+                onDescriptionChange={setTaskDescriptionInput}
+                onTaskTypeChange={setTaskTypeInput}
+                onInstructionChange={setTaskInstructionInput}
+                onIntervalChange={setTaskIntervalInput}
+                onCronExpressionChange={setTaskCronInput}
+                onOnceRunAtChange={setTaskOnceInput}
+                onStartsAtDateChange={setTaskStartsDateInput}
+                onStartsAtTimeChange={setTaskStartsTimeInput}
+                onEndsAtDateChange={setTaskEndsDateInput}
+                onEndsAtTimeChange={setTaskEndsTimeInput}
+                onTimezoneChange={setTaskTimezoneInput}
+                onModelChange={setTaskModelInput}
+                onAgentChange={setTaskAgentInput}
+                onMaxRunsChange={setTaskMaxRunsInput}
+                onRunTimeoutMinutesChange={setTaskTimeoutInput}
+                onRetryCountChange={setTaskRetryCountInput}
+                onRetryBackoffMinutesChange={setTaskRetryBackoffInput}
+                onHeartbeatEnabledChange={setTaskHeartbeatInput}
+                onGoalDefinitionChange={setTaskGoalInput}
+                onAutoDisableOnGoalMetChange={setTaskAutoDisableOnGoalMetInput}
+                onNotificationUrlChange={setTaskNotificationUrlInput}
+                onEnabledChange={setTaskEnabledInput}
+                onSave={handleSaveTask}
+                onRunNow={handleRunTaskNow}
+                onDelete={handleDeleteTask}
+                onPauseResume={handlePauseResumeTask}
+                onPreview={handlePreviewTaskSchedule}
+              />
+            ) : (
+              <ChatStateCard
+                title="No project selected"
+                detail="Pick a project to manage its scheduled tasks."
+              />
+            )}
+          </section>
         ) : (
           <section className="files-workspace">
             {activeProject ? (
@@ -6319,8 +7188,8 @@ export function App() {
                   onDelete={() => {
                     void handleDeleteSession();
                   }}
-                />
-              </div>
+                  />
+                </div>
               <div className="toolbar-card notifications-card">
                 <NotificationControls
                   supported={notificationPermission !== "unsupported"}
@@ -6332,32 +7201,17 @@ export function App() {
                   onDisable={handleDisableNotifications}
                 />
               </div>
-              <div className="toolbar-card commands-card">
-                <CommandHelpBar
-                  commands={availableCommands}
-                  onInsert={handleInsertCommand}
-                  onOpenPicker={() => setCommandPickerOpen(true)}
-                  defaultOpen={false}
+              <div className="toolbar-card install-card">
+                <InstallControls
+                  canInstall={deferredInstallPrompt !== null}
+                  installed={appInstalled}
+                  installMessage={installMessage}
+                  installing={installingApp}
+                  onInstall={() => {
+                    void handleInstallApp();
+                  }}
                 />
               </div>
-              <ScheduledTaskPanel
-                loading={taskLoading}
-                saving={taskSaving}
-                running={taskRunning}
-                deleting={taskDeleting}
-                error={taskError}
-                instruction={taskInstructionInput}
-                intervalMinutes={taskIntervalInput}
-                enabled={taskEnabledInput}
-                task={scheduledTask}
-                runs={scheduledRuns}
-                onInstructionChange={setTaskInstructionInput}
-                onIntervalChange={setTaskIntervalInput}
-                onEnabledChange={setTaskEnabledInput}
-                onSave={handleSaveTask}
-                onRunNow={handleRunTaskNow}
-                onDelete={handleDeleteTask}
-              />
             </div>
           </section>
         ) : null}
@@ -6373,7 +7227,9 @@ export function App() {
           >
             /
           </button>
-          <input
+          <textarea
+            ref={composerTextareaRef}
+            rows={1}
             disabled={
               !activeProject ||
               sending ||
@@ -6391,6 +7247,12 @@ export function App() {
                 ? "Transcribing audio..."
                 : "Message"
             }
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
           />
           <div className="composer-actions">
             <button
