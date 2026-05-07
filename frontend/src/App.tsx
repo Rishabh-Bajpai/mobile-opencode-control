@@ -3174,6 +3174,7 @@ export function App() {
   const [composerValue, setComposerValue] = useState("");
   const [sending, setSending] = useState(false);
   const [aborting, setAborting] = useState(false);
+  const [abortSuppressStreaming, setAbortSuppressStreaming] = useState(false);
   const [runIntentActive, setRunIntentActive] = useState(false);
   const [stopFeedbackLabel, setStopFeedbackLabel] = useState<string | null>(null);
   const [stopFeedbackUntilMs, setStopFeedbackUntilMs] = useState<number | null>(null);
@@ -3840,6 +3841,10 @@ export function App() {
   }, [availableCommands, commandSearch]);
   const preferredProjectRoot = normalizeProjectRootPath(suggestedProjectRoot || defaultProjectRoot);
   const hasStreamingActivity = useMemo(() => {
+    if (abortSuppressStreaming) {
+      return false;
+    }
+
     let latestAssistantTextMs = 0;
     let latestIntermediateAssistantMs = 0;
 
@@ -3861,7 +3866,7 @@ export function App() {
     }
 
     return latestIntermediateAssistantMs > latestAssistantTextMs;
-  }, [messages]);
+  }, [messages, abortSuppressStreaming]);
   const hasActiveRun =
     (fixtureMode === "run-active" || Boolean(activeProject)) &&
     (sending ||
@@ -5201,7 +5206,7 @@ export function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, activeProjectId]);
 
   useEffect(() => {
     const body = chatBodyRef.current;
@@ -5808,6 +5813,7 @@ export function App() {
 
     setSending(true);
     setRunIntentActive(true);
+    setAbortSuppressStreaming(false);
     setProjectError(null);
     if (notificationsEnabled) {
       void requestBrowserNotificationPermission();
@@ -5862,7 +5868,6 @@ export function App() {
     setProjectError(null);
     try {
       await abortSession(activeProjectId);
-      setRunIntentActive(false);
       setStopFeedbackLabel("Stop requested. Waiting for final session update...");
       setStopFeedbackUntilMs(Date.now() + 4_000);
       addTelemetryMarker("chat.abort.manual", { projectId: activeProjectId });
@@ -5876,6 +5881,8 @@ export function App() {
       setProjectError(error instanceof Error ? error.message : "Failed to abort generation");
     } finally {
       setAborting(false);
+      setRunIntentActive(false);
+      setAbortSuppressStreaming(true);
     }
   }
 
