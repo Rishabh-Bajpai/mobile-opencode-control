@@ -1807,6 +1807,15 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         if task_type == "cron":
             next_cron_runs(cron_expression or "* * * * *", timezone_name, _utc_now(), 1)
 
+        starts_at = _parse_optional_datetime(body.get("startsAt"))
+        ends_at = _parse_optional_datetime(body.get("endsAt"))
+        if starts_at and ends_at and starts_at > ends_at:
+            raise ValueError("startsAt must be before endsAt")
+        if once_run_at and starts_at and once_run_at < starts_at:
+            raise ValueError("onceRunAt must be on or after startsAt")
+        if once_run_at and ends_at and once_run_at > ends_at:
+            raise ValueError("onceRunAt must be on or before endsAt")
+
         task.project_id = project_id
         task.name = str(body.get("name") or "Scheduled task").strip()[:180]
         task.description = str(body.get("description") or "").strip() or None
@@ -1819,8 +1828,8 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         task.model = str(body.get("model") or "").strip() or None
         task.agent = str(body.get("agent") or "").strip() or None
         task.enabled = bool(body.get("enabled", True))
-        task.starts_at = _parse_optional_datetime(body.get("startsAt"))
-        task.ends_at = _parse_optional_datetime(body.get("endsAt"))
+        task.starts_at = starts_at
+        task.ends_at = ends_at
         task.max_runs = int(max_runs) if max_runs not in (None, "") else None
         task.run_timeout_minutes = int(run_timeout_minutes) if run_timeout_minutes not in (None, "") else None
         task.heartbeat_enabled = bool(body.get("heartbeatEnabled", True))
@@ -1963,6 +1972,7 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         if task is None:
             return jsonify({"error": "Scheduled task not found"}), 404
         task.enabled = False
+        task.next_run_at = None
         task.last_status = "paused"
         db.session.commit()
         return jsonify({"task": _task_to_dict(task)})
@@ -1974,7 +1984,7 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         if task is None:
             return jsonify({"error": "Scheduled task not found"}), 404
         task.enabled = True
-        task.next_run_at = task.next_run_at or calculate_next_run(task, _utc_now())
+        task.next_run_at = calculate_next_run(task, _utc_now())
         task.last_status = "idle"
         db.session.commit()
         return jsonify({"task": _task_to_dict(task)})

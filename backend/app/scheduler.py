@@ -96,19 +96,27 @@ def next_cron_runs(
     start: datetime | None = None,
     count: int = 5,
 ) -> list[datetime]:
+    fields = expression.split()
     minute, hour, day, month, weekday = parse_cron_expression(expression)
+    day_of_month_restricted = fields[2].strip() != "*"
+    day_of_week_restricted = fields[4].strip() != "*"
     tz = ZoneInfo(timezone_name or "UTC")
     cursor = (start or _utc_now()).astimezone(tz).replace(second=0, microsecond=0) + timedelta(minutes=1)
     runs: list[datetime] = []
     max_checks = 366 * 24 * 60
     for _ in range(max_checks):
         cron_weekday = (cursor.weekday() + 1) % 7
+        day_matches = cursor.day in day
+        weekday_matches = cron_weekday in weekday
+        if day_of_month_restricted and day_of_week_restricted:
+            day_gate = day_matches or weekday_matches
+        else:
+            day_gate = day_matches and weekday_matches
         if (
             cursor.minute in minute
             and cursor.hour in hour
-            and cursor.day in day
+            and day_gate
             and cursor.month in month
-            and cron_weekday in weekday
         ):
             runs.append(cursor.astimezone(timezone.utc))
             if len(runs) >= count:
@@ -410,6 +418,11 @@ class TaskScheduler:
             task_name = task.name or "scheduled task"
             project_name = project.name
             project_path = project.path
+            request_timeout_seconds = (
+                max(1, int(task.run_timeout_minutes or 0)) * 60
+                if task.run_timeout_minutes
+                else None
+            )
             task.last_run_at = _utc_now()
             db.session.commit()
 
@@ -436,6 +449,7 @@ class TaskScheduler:
                             text="Read and apply this heartbeat instruction before continuing:\n\n" + heartbeat_text,
                             model=task_model,
                             agent=task_agent,
+                            timeout_seconds=request_timeout_seconds,
                         )
                         heartbeat_loaded = True
 
@@ -454,6 +468,7 @@ class TaskScheduler:
                 text=prompt,
                 model=task_model,
                 agent=task_agent,
+                timeout_seconds=request_timeout_seconds,
             )
             output = _extract_text(response)
             goal_met = _goal_met_from_text(output) if task_type == "goal" else None
@@ -489,6 +504,11 @@ class TaskScheduler:
                 run = ScheduledTaskRun.query.get(run_id)
                 if task is None or run is None:
                     return
+                if isinstance(exc, requests.Timeout) and task_session_id:
+                    try:
+                        self._opencode_client.abort_session(task_session_id, directory=project_path)
+                    except Exception:
+                        pass
                 run.session_id = task_session_id
                 run.error = str(exc)
                 if task.retry_count > run.retry_attempt:

@@ -369,7 +369,7 @@ export async function fetchScheduledTask(projectId: string): Promise<ScheduledTa
 export async function saveScheduledTask(
   projectId: string,
   input: Partial<ScheduledTask> & { instruction: string; intervalMinutes: number; enabled: boolean }
-): Promise<{ task: ScheduledTask }> {
+): Promise<{ task: ScheduledTask; tasks: ScheduledTask[] }> {
   return request(`/api/projects/${projectId}/task`, {
     method: "PUT",
     body: JSON.stringify(input),
@@ -398,9 +398,14 @@ export async function runScheduledTaskNow(
 
 export async function fetchScheduledTaskRuns(
   projectId: string,
-  limit = 20
+  limit = 20,
+  taskId?: string | null
 ): Promise<{ runs: ScheduledTaskRun[] }> {
-  return request(`/api/projects/${projectId}/task/runs?limit=${encodeURIComponent(String(limit))}`);
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (taskId) {
+    params.set("taskId", taskId);
+  }
+  return request(`/api/projects/${projectId}/task/runs?${params.toString()}`);
 }
 
 export async function fetchScheduledTasks(projectId: string): Promise<{ tasks: ScheduledTask[] }> {

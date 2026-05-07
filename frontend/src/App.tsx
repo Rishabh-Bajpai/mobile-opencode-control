@@ -1205,16 +1205,25 @@ function timelineEventToTaskRun(event: TimelineEvent): ScheduledTaskRun | null {
 
   const payload = event.payload ?? {};
   const asString = (value: unknown) => (typeof value === "string" ? value : null);
+  const asIdString = (value: unknown) => {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+    return null;
+  };
   const asBoolean = (value: unknown) => Boolean(value);
   const asNumber = (value: unknown) => (typeof value === "number" ? value : null);
 
-  const taskRunId = asString(payload.taskRunId) ?? asString(payload.task_run_id) ?? event.id;
+  const taskRunId = asIdString(payload.taskRunId) ?? asIdString(payload.task_run_id) ?? event.id;
   const status = asString(payload.status) ?? "unknown";
   const trigger = asString(payload.trigger) ?? "schedule";
 
   return {
     id: taskRunId,
-    taskId: asString(payload.taskId) ?? "",
+    taskId: asIdString(payload.taskId) ?? "",
     projectId: event.projectId,
     status,
     sessionId: asString(payload.sessionId),
@@ -2011,6 +2020,41 @@ function formatRelativeTaskTime(value: string | null) {
   return deltaMs >= 0 ? `in ${absDays}d` : `${absDays}d ago`;
 }
 
+function toLocalDateInputParts(value: string | null): { date: string; time: string } {
+  if (!value) {
+    return { date: "", time: "" };
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return { date: "", time: "" };
+  }
+
+  const pad = (input: number) => String(input).padStart(2, "0");
+  return {
+    date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    time: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+  };
+}
+
+function toLocalDateTimeInputValue(value: string | null) {
+  const parts = toLocalDateInputParts(value);
+  return parts.date && parts.time ? `${parts.date}T${parts.time}` : "";
+}
+
+function toIsoFromLocalDateAndTime(date: string, time: string) {
+  if (!date) {
+    return null;
+  }
+
+  const localDateTime = new Date(`${date}T${time || "00:00"}`);
+  if (Number.isNaN(localDateTime.getTime())) {
+    return null;
+  }
+
+  return localDateTime.toISOString();
+}
+
 function formatElapsedShort(ms: number) {
   const safeMs = Math.max(0, ms);
   const totalSeconds = Math.floor(safeMs / 1000);
@@ -2591,13 +2635,20 @@ function ScheduledTaskPanel({
   intervalMinutes,
   cronExpression,
   onceRunAt,
+  startsAtDate,
+  startsAtTime,
+  endsAtDate,
+  endsAtTime,
   timezone,
   model,
   agent,
   maxRuns,
   runTimeoutMinutes,
+  retryCount,
+  retryBackoffMinutes,
   heartbeatEnabled,
   goalDefinition,
+  autoDisableOnGoalMet,
   notificationUrl,
   enabled,
   task,
@@ -2615,13 +2666,20 @@ function ScheduledTaskPanel({
   onIntervalChange,
   onCronExpressionChange,
   onOnceRunAtChange,
+  onStartsAtDateChange,
+  onStartsAtTimeChange,
+  onEndsAtDateChange,
+  onEndsAtTimeChange,
   onTimezoneChange,
   onModelChange,
   onAgentChange,
   onMaxRunsChange,
   onRunTimeoutMinutesChange,
+  onRetryCountChange,
+  onRetryBackoffMinutesChange,
   onHeartbeatEnabledChange,
   onGoalDefinitionChange,
+  onAutoDisableOnGoalMetChange,
   onNotificationUrlChange,
   onEnabledChange,
   onSave,
@@ -2642,13 +2700,20 @@ function ScheduledTaskPanel({
   intervalMinutes: number;
   cronExpression: string;
   onceRunAt: string;
+  startsAtDate: string;
+  startsAtTime: string;
+  endsAtDate: string;
+  endsAtTime: string;
   timezone: string;
   model: string;
   agent: string;
   maxRuns: string;
   runTimeoutMinutes: string;
+  retryCount: string;
+  retryBackoffMinutes: string;
   heartbeatEnabled: boolean;
   goalDefinition: string;
+  autoDisableOnGoalMet: boolean;
   notificationUrl: string;
   enabled: boolean;
   task: ScheduledTask | null;
@@ -2666,13 +2731,20 @@ function ScheduledTaskPanel({
   onIntervalChange: (value: number) => void;
   onCronExpressionChange: (value: string) => void;
   onOnceRunAtChange: (value: string) => void;
+  onStartsAtDateChange: (value: string) => void;
+  onStartsAtTimeChange: (value: string) => void;
+  onEndsAtDateChange: (value: string) => void;
+  onEndsAtTimeChange: (value: string) => void;
   onTimezoneChange: (value: string) => void;
   onModelChange: (value: string) => void;
   onAgentChange: (value: string) => void;
   onMaxRunsChange: (value: string) => void;
   onRunTimeoutMinutesChange: (value: string) => void;
+  onRetryCountChange: (value: string) => void;
+  onRetryBackoffMinutesChange: (value: string) => void;
   onHeartbeatEnabledChange: (value: boolean) => void;
   onGoalDefinitionChange: (value: string) => void;
+  onAutoDisableOnGoalMetChange: (value: boolean) => void;
   onNotificationUrlChange: (value: string) => void;
   onEnabledChange: (value: boolean) => void;
   onSave: () => Promise<void>;
@@ -2820,6 +2892,25 @@ function ScheduledTaskPanel({
 
               <div className="task-inline-fields">
                 <label>
+                  <span>Start date</span>
+                  <input type="date" value={startsAtDate} onChange={(event) => onStartsAtDateChange(event.target.value)} />
+                </label>
+                <label>
+                  <span>Start time</span>
+                  <input type="time" value={startsAtTime} onChange={(event) => onStartsAtTimeChange(event.target.value)} />
+                </label>
+                <label>
+                  <span>End date</span>
+                  <input type="date" value={endsAtDate} onChange={(event) => onEndsAtDateChange(event.target.value)} />
+                </label>
+                <label>
+                  <span>End time</span>
+                  <input type="time" value={endsAtTime} onChange={(event) => onEndsAtTimeChange(event.target.value)} />
+                </label>
+              </div>
+
+              <div className="task-inline-fields">
+                <label>
                   <span>Model</span>
                   <select value={model} onChange={(event) => onModelChange(event.target.value)}>
                     <option value="">Server default</option>
@@ -2844,6 +2935,14 @@ function ScheduledTaskPanel({
                   <span>Timeout minutes</span>
                   <input type="number" min={1} value={runTimeoutMinutes} onChange={(event) => onRunTimeoutMinutesChange(event.target.value)} placeholder="none" />
                 </label>
+                <label>
+                  <span>Retries</span>
+                  <input type="number" min={0} value={retryCount} onChange={(event) => onRetryCountChange(event.target.value)} />
+                </label>
+                <label>
+                  <span>Retry backoff</span>
+                  <input type="number" min={1} value={retryBackoffMinutes} onChange={(event) => onRetryBackoffMinutesChange(event.target.value)} placeholder="minutes" />
+                </label>
                 <label className="task-enabled">
                   <input
                     type="checkbox"
@@ -2854,13 +2953,22 @@ function ScheduledTaskPanel({
                 </label>
                 <label className="task-enabled">
                   <input type="checkbox" checked={heartbeatEnabled} onChange={(event) => onHeartbeatEnabledChange(event.target.checked)} />
-                  <span>Use heartbeat</span>
+                  <span>Use heartbeat file</span>
                 </label>
               </div>
 
               {taskType === "goal" ? <label>
                 <span>Goal definition</span>
                 <textarea value={goalDefinition} onChange={(event) => onGoalDefinitionChange(event.target.value)} placeholder="Describe the objective. The agent will report GOAL_MET: yes/no." />
+              </label> : null}
+
+              {taskType === "goal" ? <label className="task-enabled">
+                <input
+                  type="checkbox"
+                  checked={autoDisableOnGoalMet}
+                  onChange={(event) => onAutoDisableOnGoalMetChange(event.target.checked)}
+                />
+                <span>Pause when goal is met</span>
               </label> : null}
 
               <label>
@@ -2925,7 +3033,7 @@ function ScheduledTaskPanel({
                         </div>
                         <div className="task-run-item-meta">
                           <span className={`task-status-badge ${taskStatusTone(run.status)}`}>{run.status}</span>
-                          <span className="task-status-badge idle">{run.heartbeatLoaded ? "heartbeat loaded" : "heartbeat missing"}</span>
+                          <span className="task-status-badge idle">{run.heartbeatLoaded ? "heartbeat loaded" : "no heartbeat"}</span>
                           {run.modelUsed ? <span className="task-status-badge idle">{run.modelUsed}</span> : null}
                           {run.agentUsed ? <span className="task-status-badge idle">{run.agentUsed}</span> : null}
                           {run.goalAttempted ? <span className="task-status-badge idle">goal {run.goalMet ? "met" : "open"}</span> : null}
@@ -3106,13 +3214,20 @@ export function App() {
   const [taskIntervalInput, setTaskIntervalInput] = useState(15);
   const [taskCronInput, setTaskCronInput] = useState("0 9 * * *");
   const [taskOnceInput, setTaskOnceInput] = useState("");
+  const [taskStartsDateInput, setTaskStartsDateInput] = useState("");
+  const [taskStartsTimeInput, setTaskStartsTimeInput] = useState("");
+  const [taskEndsDateInput, setTaskEndsDateInput] = useState("");
+  const [taskEndsTimeInput, setTaskEndsTimeInput] = useState("");
   const [taskTimezoneInput, setTaskTimezoneInput] = useState("UTC");
   const [taskModelInput, setTaskModelInput] = useState("");
   const [taskAgentInput, setTaskAgentInput] = useState("");
   const [taskMaxRunsInput, setTaskMaxRunsInput] = useState("");
   const [taskTimeoutInput, setTaskTimeoutInput] = useState("");
+  const [taskRetryCountInput, setTaskRetryCountInput] = useState("0");
+  const [taskRetryBackoffInput, setTaskRetryBackoffInput] = useState("5");
   const [taskHeartbeatInput, setTaskHeartbeatInput] = useState(true);
   const [taskGoalInput, setTaskGoalInput] = useState("");
+  const [taskAutoDisableOnGoalMetInput, setTaskAutoDisableOnGoalMetInput] = useState(true);
   const [taskNotificationUrlInput, setTaskNotificationUrlInput] = useState("");
   const [taskPreviewRuns, setTaskPreviewRuns] = useState<string[]>([]);
   const [taskEnabledInput, setTaskEnabledInput] = useState(true);
@@ -3314,13 +3429,20 @@ export function App() {
     setTaskIntervalInput(15);
     setTaskCronInput("0 9 * * *");
     setTaskOnceInput("");
+    setTaskStartsDateInput("");
+    setTaskStartsTimeInput("");
+    setTaskEndsDateInput("");
+    setTaskEndsTimeInput("");
     setTaskTimezoneInput(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
     setTaskModelInput("");
     setTaskAgentInput("");
     setTaskMaxRunsInput("");
     setTaskTimeoutInput("");
+    setTaskRetryCountInput("0");
+    setTaskRetryBackoffInput("5");
     setTaskHeartbeatInput(true);
     setTaskGoalInput("");
+    setTaskAutoDisableOnGoalMetInput(true);
     setTaskNotificationUrlInput("");
     setTaskPreviewRuns([]);
     setTaskEnabledInput(true);
@@ -3334,14 +3456,23 @@ export function App() {
     setTaskInstructionInput(task.instruction);
     setTaskIntervalInput(task.intervalMinutes || 15);
     setTaskCronInput(task.cronExpression ?? "0 9 * * *");
-    setTaskOnceInput(task.onceRunAt ? task.onceRunAt.slice(0, 16) : "");
+    setTaskOnceInput(toLocalDateTimeInputValue(task.onceRunAt));
+    const startsAtParts = toLocalDateInputParts(task.startsAt);
+    const endsAtParts = toLocalDateInputParts(task.endsAt);
+    setTaskStartsDateInput(startsAtParts.date);
+    setTaskStartsTimeInput(startsAtParts.time);
+    setTaskEndsDateInput(endsAtParts.date);
+    setTaskEndsTimeInput(endsAtParts.time);
     setTaskTimezoneInput(task.timezone || "UTC");
     setTaskModelInput(task.model ?? "");
     setTaskAgentInput(task.agent ?? "");
     setTaskMaxRunsInput(task.maxRuns === null ? "" : String(task.maxRuns));
     setTaskTimeoutInput(task.runTimeoutMinutes === null ? "" : String(task.runTimeoutMinutes));
+    setTaskRetryCountInput(String(task.retryCount ?? 0));
+    setTaskRetryBackoffInput(String(task.retryBackoffMinutes ?? 5));
     setTaskHeartbeatInput(task.heartbeatEnabled);
     setTaskGoalInput(task.goalDefinition ?? "");
+    setTaskAutoDisableOnGoalMetInput(task.autoDisableOnGoalMet);
     setTaskNotificationUrlInput(task.notificationUrl ?? "");
     setTaskEnabledInput(task.enabled);
   }
@@ -3790,12 +3921,6 @@ export function App() {
       if (!run) {
         continue;
       }
-      if (!activeSessionId || run.sessionId !== activeSessionId) {
-        continue;
-      }
-      if (scheduledTask && run.taskId !== scheduledTask.id) {
-        continue;
-      }
       runEntries.push({
         kind: "task_run",
         id: `t-${event.id}`,
@@ -3812,7 +3937,7 @@ export function App() {
     return [...messageEntries, ...runEntries].sort(
       (a, b) => toMillis(a.createdAt) - toMillis(b.createdAt)
     );
-  }, [activeSessionId, messages, scheduledTask, taskTimelineEvents]);
+  }, [messages, taskTimelineEvents]);
   const effectiveTimelineEntries = useMemo<TimelineEntry[]>(() => {
     if (fixtureMode === "task-run-success" || fixtureMode === "task-run-error") {
       const now = new Date();
@@ -4498,25 +4623,35 @@ export function App() {
     }
   }
 
-  async function loadTaskDetails(projectId: string) {
+  async function loadTaskDetails(projectId: string, preferredTaskId?: string | null) {
     const requestId = taskLoadRequestRef.current + 1;
     taskLoadRequestRef.current = requestId;
     setTaskLoading(true);
     setTaskError(null);
     try {
-      const [taskResult, runsResult] = await Promise.all([
-        fetchScheduledTask(projectId),
-        fetchScheduledTaskRuns(projectId, 20),
-      ]);
+      const taskResult = await fetchScheduledTask(projectId);
       if (requestId !== taskLoadRequestRef.current) {
         return;
       }
-      setScheduledTasks(taskResult.tasks ?? (taskResult.task ? [taskResult.task] : []));
-      setScheduledTask(taskResult.task);
+      const tasks = taskResult.tasks ?? (taskResult.task ? [taskResult.task] : []);
+      const selectedTask =
+        tasks.find((task) => task.id === preferredTaskId)
+        ?? tasks.find((task) => task.id === scheduledTask?.id)
+        ?? taskResult.task
+        ?? tasks[0]
+        ?? null;
+      const runsResult = selectedTask
+        ? await fetchScheduledTaskRuns(projectId, 20, selectedTask.id)
+        : { runs: [] };
+      if (requestId !== taskLoadRequestRef.current) {
+        return;
+      }
+      setScheduledTasks(tasks);
+      setScheduledTask(selectedTask);
       setScheduledRuns(runsResult.runs);
 
-      if (taskResult.task) {
-        populateTaskForm(taskResult.task);
+      if (selectedTask) {
+        populateTaskForm(selectedTask);
       } else {
         resetTaskForm();
       }
@@ -4666,18 +4801,24 @@ export function App() {
         cronExpression: taskCronInput,
         onceRunAt: taskOnceInput ? new Date(taskOnceInput).toISOString() : null,
         intervalMinutes: taskIntervalInput,
+        startsAt: toIsoFromLocalDateAndTime(taskStartsDateInput, taskStartsTimeInput),
+        endsAt: toIsoFromLocalDateAndTime(taskEndsDateInput, taskEndsTimeInput),
         timezone: taskTimezoneInput,
         model: taskModelInput || null,
         agent: taskAgentInput || null,
         maxRuns: taskMaxRunsInput ? Number(taskMaxRunsInput) : null,
         runTimeoutMinutes: taskTimeoutInput ? Number(taskTimeoutInput) : null,
+        retryCount: Number(taskRetryCountInput || "0"),
+        retryBackoffMinutes: Number(taskRetryBackoffInput || "5"),
         heartbeatEnabled: taskHeartbeatInput,
         goalDefinition: taskGoalInput || null,
+        autoDisableOnGoalMet: taskAutoDisableOnGoalMetInput,
         notificationUrl: taskNotificationUrlInput || null,
         enabled: taskEnabledInput,
       });
       setScheduledTask(response.task);
-      await loadTaskDetails(activeProjectId);
+      setScheduledTasks(response.tasks ?? []);
+      await loadTaskDetails(activeProjectId, response.task.id);
       await refreshProjectsAndStatus(activeProjectId);
     } catch (error) {
       setTaskError(error instanceof Error ? error.message : "Failed to save task");
@@ -4696,7 +4837,7 @@ export function App() {
     try {
       const response = await runScheduledTaskNow(activeProjectId, scheduledTask?.id);
       setScheduledTask(response.task);
-      await loadTaskDetails(activeProjectId);
+      await loadTaskDetails(activeProjectId, response.task.id);
       await refreshProjectsAndStatus(activeProjectId);
     } catch (error) {
       setTaskError(error instanceof Error ? error.message : "Failed to run task now");
@@ -4733,8 +4874,8 @@ export function App() {
       return;
     }
     try {
-      const result = await fetchScheduledTaskRuns(activeProjectId, 20);
-      setScheduledRuns(result.runs.filter((run) => run.taskId === task.id));
+      const result = await fetchScheduledTaskRuns(activeProjectId, 20, task.id);
+      setScheduledRuns(result.runs);
     } catch {
       setScheduledRuns([]);
     }
@@ -4771,7 +4912,7 @@ export function App() {
         ? await pauseScheduledTask(activeProjectId, scheduledTask.id)
         : await resumeScheduledTask(activeProjectId, scheduledTask.id);
       populateTaskForm(result.task);
-      await loadTaskDetails(activeProjectId);
+      await loadTaskDetails(activeProjectId, result.task.id);
     } catch (error) {
       setTaskError(error instanceof Error ? error.message : "Failed to update task state");
     } finally {
@@ -6761,13 +6902,20 @@ export function App() {
                 intervalMinutes={taskIntervalInput}
                 cronExpression={taskCronInput}
                 onceRunAt={taskOnceInput}
+                startsAtDate={taskStartsDateInput}
+                startsAtTime={taskStartsTimeInput}
+                endsAtDate={taskEndsDateInput}
+                endsAtTime={taskEndsTimeInput}
                 timezone={taskTimezoneInput}
                 model={taskModelInput}
                 agent={taskAgentInput}
                 maxRuns={taskMaxRunsInput}
                 runTimeoutMinutes={taskTimeoutInput}
+                retryCount={taskRetryCountInput}
+                retryBackoffMinutes={taskRetryBackoffInput}
                 heartbeatEnabled={taskHeartbeatInput}
                 goalDefinition={taskGoalInput}
+                autoDisableOnGoalMet={taskAutoDisableOnGoalMetInput}
                 notificationUrl={taskNotificationUrlInput}
                 enabled={taskEnabledInput}
                 task={scheduledTask}
@@ -6787,13 +6935,20 @@ export function App() {
                 onIntervalChange={setTaskIntervalInput}
                 onCronExpressionChange={setTaskCronInput}
                 onOnceRunAtChange={setTaskOnceInput}
+                onStartsAtDateChange={setTaskStartsDateInput}
+                onStartsAtTimeChange={setTaskStartsTimeInput}
+                onEndsAtDateChange={setTaskEndsDateInput}
+                onEndsAtTimeChange={setTaskEndsTimeInput}
                 onTimezoneChange={setTaskTimezoneInput}
                 onModelChange={setTaskModelInput}
                 onAgentChange={setTaskAgentInput}
                 onMaxRunsChange={setTaskMaxRunsInput}
                 onRunTimeoutMinutesChange={setTaskTimeoutInput}
+                onRetryCountChange={setTaskRetryCountInput}
+                onRetryBackoffMinutesChange={setTaskRetryBackoffInput}
                 onHeartbeatEnabledChange={setTaskHeartbeatInput}
                 onGoalDefinitionChange={setTaskGoalInput}
+                onAutoDisableOnGoalMetChange={setTaskAutoDisableOnGoalMetInput}
                 onNotificationUrlChange={setTaskNotificationUrlInput}
                 onEnabledChange={setTaskEnabledInput}
                 onSave={handleSaveTask}
