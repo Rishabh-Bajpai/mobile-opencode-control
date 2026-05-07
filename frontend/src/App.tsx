@@ -4483,7 +4483,7 @@ export function App() {
 
   async function loadMessages(
     projectId: string,
-    options?: { silent?: boolean }
+    options?: { silent?: boolean; sessionId?: string }
   ) {
     const requestId = messageLoadRequestRef.current + 1;
     messageLoadRequestRef.current = requestId;
@@ -4494,12 +4494,15 @@ export function App() {
     }
     setProjectError(null);
     try {
-      const messageResult = await fetchMessages(projectId);
+      const sessionId = options && "sessionId" in options ? options.sessionId : activeSessionId ?? undefined;
+      const messageResult = await fetchMessages(projectId, sessionId);
       if (requestId !== messageLoadRequestRef.current) {
         return;
       }
-      setActiveSessionId(messageResult.sessionId);
-      updateProjectSessionSelection(projectId, messageResult.sessionId);
+      if (!options?.sessionId) {
+        setActiveSessionId(messageResult.sessionId);
+        updateProjectSessionSelection(projectId, messageResult.sessionId);
+      }
       setMessages(messageResult.messages);
       setTaskTimelineEvents(messageResult.timelineEvents ?? []);
     } catch (error) {
@@ -4745,8 +4748,10 @@ export function App() {
         return;
       }
       setProjectSessions(result.sessions);
-      setActiveSessionId(result.activeSessionId);
-      updateProjectSessionSelection(projectId, result.activeSessionId);
+      if (!silent) {
+        setActiveSessionId(result.activeSessionId);
+        updateProjectSessionSelection(projectId, result.activeSessionId);
+      }
     } catch (error) {
       if (requestId !== sessionLoadRequestRef.current) {
         return;
@@ -5206,7 +5211,7 @@ export function App() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isAuthenticated, activeProjectId]);
+  }, [isAuthenticated, activeProjectId, activeSessionId]);
 
   useEffect(() => {
     const body = chatBodyRef.current;
@@ -5555,12 +5560,13 @@ export function App() {
     setMobileSettingsOpen(false);
     try {
       const result = await updateProjectSession(activeProjectId, nextSessionId);
-      setActiveSessionId(result.activeSessionId);
-      updateProjectSessionSelection(activeProjectId, result.activeSessionId);
+      const switchedSessionId = result.activeSessionId;
+      setActiveSessionId(switchedSessionId);
+      updateProjectSessionSelection(activeProjectId, switchedSessionId);
       setPendingApprovals([]);
       await Promise.all([
         loadProjectSessions(activeProjectId),
-        loadMessages(activeProjectId),
+        loadMessages(activeProjectId, { sessionId: switchedSessionId }),
         loadPendingApprovals(activeProjectId),
       ]);
       void loadDiff(activeProjectId);
@@ -5588,15 +5594,16 @@ export function App() {
     setMobileSettingsOpen(false);
     try {
       const result = await createProjectSession(activeProjectId);
-      setActiveSessionId(result.activeSessionId);
-      updateProjectSessionSelection(activeProjectId, result.activeSessionId);
+      const createdSessionId = result.activeSessionId;
+      setActiveSessionId(createdSessionId);
+      updateProjectSessionSelection(activeProjectId, createdSessionId);
       setPendingApprovals([]);
       setMessages([]);
       setTaskTimelineEvents([]);
       setDiffEntries([]);
       await Promise.all([
         loadProjectSessions(activeProjectId),
-        loadMessages(activeProjectId),
+        loadMessages(activeProjectId, { sessionId: createdSessionId }),
         loadPendingApprovals(activeProjectId),
       ]);
       void loadDiff(activeProjectId);
@@ -5637,9 +5644,10 @@ export function App() {
     setMobileSettingsOpen(false);
     try {
       const result = await deleteProjectSession(activeProjectId, activeSessionId);
+      const deletedResultSessionId = result.activeSessionId;
       setProjectSessions(result.sessions);
-      setActiveSessionId(result.activeSessionId);
-      updateProjectSessionSelection(activeProjectId, result.activeSessionId);
+      setActiveSessionId(deletedResultSessionId);
+      updateProjectSessionSelection(activeProjectId, deletedResultSessionId);
       setPendingApprovals([]);
       setMessages([]);
       setTaskTimelineEvents([]);
@@ -5652,16 +5660,16 @@ export function App() {
         const nextProjectId = await refreshProjectsAndStatus(result.activeProjectId ?? null);
         if (nextProjectId) {
           await Promise.all([
-            loadMessages(nextProjectId),
+            loadMessages(nextProjectId, { sessionId: undefined }),
             loadPendingApprovals(nextProjectId),
           ]);
           void loadDiff(nextProjectId);
         }
         return;
       }
-      if (result.activeSessionId) {
+      if (deletedResultSessionId) {
         await Promise.all([
-          loadMessages(activeProjectId),
+          loadMessages(activeProjectId, { sessionId: deletedResultSessionId }),
           loadPendingApprovals(activeProjectId),
         ]);
         void loadDiff(activeProjectId);

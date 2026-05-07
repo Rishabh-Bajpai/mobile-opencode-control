@@ -2055,7 +2055,18 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             return jsonify({"error": "Project not found"}), 404
 
         try:
-            session_id = _ensure_project_session(project, opencode_client)
+            session_id_param = request.args.get("session_id", "").strip()
+            if session_id_param:
+                try:
+                    session = opencode_client.get_session(session_id_param)
+                    if _session_matches_project(project, session):
+                        session_id = session_id_param
+                    else:
+                        session_id = _ensure_project_session(project, opencode_client)
+                except Exception:
+                    session_id = _ensure_project_session(project, opencode_client)
+            else:
+                session_id = _ensure_project_session(project, opencode_client)
             limit = int(request.args.get("limit", "100"))
             limit = min(max(limit, 1), 200)
             messages = opencode_client.list_messages(

@@ -117,12 +117,13 @@ export async function selectProject(projectId: string): Promise<void> {
   });
 }
 
-export async function fetchMessages(projectId: string): Promise<{
+export async function fetchMessages(projectId: string, sessionId?: string): Promise<{
   sessionId: string;
   messages: ChatMessage[];
   timelineEvents: TimelineEvent[];
 }> {
-  return request(`/api/projects/${projectId}/messages`);
+  const params = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  return request(`/api/projects/${projectId}/messages${params}`);
 }
 
 export async function sendMessage(projectId: string, text: string): Promise<{
