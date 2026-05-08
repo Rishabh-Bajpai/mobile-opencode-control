@@ -1,5 +1,6 @@
 import { FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, UIEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import GitView from "./GitView";
 import {
   abortSession,
   createProjectSession,
@@ -3400,7 +3401,7 @@ export function App() {
   });
   const [desktopProjectControlsCollapsed, setDesktopProjectControlsCollapsed] = useState(true);
   const [desktopChatToolbarCollapsed, setDesktopChatToolbarCollapsed] = useState(true);
-  const [activeMainView, setActiveMainView] = useState<"chat" | "files" | "tasks">("chat");
+  const [activeMainView, setActiveMainView] = useState<"chat" | "files" | "tasks" | "git">("chat");
   const [mobileProjectListOpen, setMobileProjectListOpen] = useState(false);
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileNewProjectOpen, setMobileNewProjectOpen] = useState(false);
@@ -6668,6 +6669,15 @@ export function App() {
                 >
                   Tasks
                 </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeMainView === "git"}
+                  className={activeMainView === "git" ? "active" : ""}
+                  onClick={() => setActiveMainView("git")}
+                >
+                  Git
+                </button>
               </div>
             ) : null}
             {!isMobileViewport ? (
@@ -6722,6 +6732,15 @@ export function App() {
                 onClick={() => setActiveMainView("tasks")}
               >
                 Tasks
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeMainView === "git"}
+                className={activeMainView === "git" ? "active" : ""}
+                onClick={() => setActiveMainView("git")}
+              >
+                Git
               </button>
             </div>
           ) : null}
@@ -7206,6 +7225,10 @@ export function App() {
                 />
               </div>
             </div>
+          </section>
+        ) : activeMainView === "git" ? (
+          <section className="git-main-view" style={{ flex: 1, overflowY: "auto" }}>
+            {activeProject && <GitView projectId={activeProject.id} />}
           </section>
         ) : null}
 

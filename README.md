@@ -290,3 +290,14 @@ Built-in defaults are CPU-first:
 
 - `BUILTIN_STT_DEVICE=cpu`
 - `BUILTIN_STT_COMPUTE_TYPE=int8`
+
+## Testing the Git feature
+
+To test the Git UI control:
+1. Make sure your environment has Git installed (which you're likely using anyway) and the backend is running.
+2. Select a project in the OpenCode controller.
+3. In the top-right header section of the project view, click the "Git" tab.
+4. If the project isn't already a Git repository, click the "Initialize Git Repository" button.
+5. You should now see the Git status. You can view changed, staged, and untracked files.
+6. Enter a commit message and press "Commit" to stage and commit all changes.
+7. Use the "Set Origin" section to configure a remote URL, and "Pull" or "Push" to synchronize.

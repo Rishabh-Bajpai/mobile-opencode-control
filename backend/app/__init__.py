@@ -7,6 +7,7 @@ from flask_cors import CORS
 from sqlalchemy import inspect, text
 
 from .auth import register_auth_routes
+from .git_routes import register_git_routes
 from .config import load_settings
 from .db import db
 from .models import AppSetting, Project, ScheduledTask, ScheduledTaskRun, TimelineEvent
@@ -262,5 +263,6 @@ def create_app() -> Flask:
     register_auth_routes(app, settings)
     voice_runtime = BuiltinVoiceRuntime(settings)
     register_api_routes(app, settings, opencode_client, scheduler, voice_runtime)
+    register_git_routes(app)
 
     return app

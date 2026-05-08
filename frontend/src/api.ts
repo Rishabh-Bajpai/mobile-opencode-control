@@ -430,3 +430,49 @@ export async function previewScheduledTask(
     body: JSON.stringify(input),
   });
 }
+
+export interface GitStatusResponse {
+  untracked: string[];
+  changed: string[];
+  staged: string[];
+  isClean: boolean;
+  branch: string;
+  remotes: string[];
+  notGit?: boolean;
+}
+
+export function apiGitInit(projectId: string) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/init`, { method: "POST" });
+}
+
+export function apiGitStatus(projectId: string) {
+  return request<GitStatusResponse>(`/api/projects/${projectId}/git/status`);
+}
+
+export function apiGitCommit(projectId: string, message: string) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/commit`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
+export function apiGitPush(projectId: string, remote: string) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/push`, {
+    method: "POST",
+    body: JSON.stringify({ remote }),
+  });
+}
+
+export function apiGitPull(projectId: string, remote: string) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/pull`, {
+    method: "POST",
+    body: JSON.stringify({ remote }),
+  });
+}
+
+export function apiGitRemote(projectId: string, name: string, url: string) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/remote`, {
+    method: "POST",
+    body: JSON.stringify({ name, url }),
+  });
+}
