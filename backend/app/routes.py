@@ -1518,6 +1518,37 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         db.session.add(project)
         db.session.commit()
 
+        use_ralph_loop = body.get("useRalphLoop", False)
+        if use_ralph_loop:
+            import shutil
+            import stat
+            import logging
+            try:
+                # Backend runs from repo root or backend dir
+                # Try to locate the source template files
+                repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                src_scripts = os.path.join(repo_root, "scripts", "ralph")
+                src_prd = os.path.join(repo_root, "prd.json.example")
+
+                if not os.path.exists(src_scripts):
+                    # fallback
+                    src_scripts = os.path.abspath(os.path.join("scripts", "ralph"))
+                    src_prd = os.path.abspath("prd.json.example")
+
+                target_scripts = os.path.join(normalized_path, "scripts", "ralph")
+                os.makedirs(target_scripts, exist_ok=True)
+
+                shutil.copy(os.path.join(src_scripts, "ralph.sh"), os.path.join(target_scripts, "ralph.sh"))
+                shutil.copy(os.path.join(src_scripts, "prompt.md"), os.path.join(target_scripts, "prompt.md"))
+                shutil.copy(src_prd, os.path.join(normalized_path, "prd.json"))
+
+                ralph_sh_path = os.path.join(target_scripts, "ralph.sh")
+                st = os.stat(ralph_sh_path)
+                os.chmod(ralph_sh_path, st.st_mode | stat.S_IEXEC)
+            except Exception as e:
+                # Proceed anyway if we fail
+                logging.error(f"Failed to initialize Ralph Loop: {e}")
+
         try:
             _ensure_project_session(project, opencode_client)
         except Exception as exc:

@@ -3218,6 +3218,7 @@ export function App() {
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectRootPath, setNewProjectRootPath] = useState("");
   const [newProjectPath, setNewProjectPath] = useState("");
+  const [createWithRalph, setCreateWithRalph] = useState(false);
   const [defaultProjectRoot, setDefaultProjectRoot] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
   const [highlightedProjectId, setHighlightedProjectId] = useState<string | null>(null);
@@ -5795,6 +5796,7 @@ export function App() {
       await createProject({
         name: trimmedProjectName,
         path: targetProjectPath,
+        useRalphLoop: createWithRalph,
       });
       setNewProjectName("");
       setNewProjectRootPath(preferredProjectRoot);
@@ -6335,6 +6337,14 @@ export function App() {
                 placeholder={preferredProjectRoot || "Project root path"}
               />
               {preferredProjectRoot ? <small>Root path: {preferredProjectRoot}</small> : null}
+              <label className="ralph-loop-checkbox-label" style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px", fontSize: "14px" }}>
+                <input
+                  type="checkbox"
+                  checked={createWithRalph}
+                  onChange={(e) => setCreateWithRalph(e.target.checked)}
+                />
+                Initialize Ralph Loop
+              </label>
               <div className="mobile-new-project-actions">
                 <button type="button" className="mobile-icon-button" onClick={() => setMobileNewProjectOpen(false)}>
                   Cancel
@@ -6461,6 +6471,16 @@ export function App() {
               >
                 Use suggested
               </button>
+            </div>
+            <div style={{ marginTop: "12px", marginBottom: "8px" }}>
+              <label className="ralph-loop-checkbox-label" style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px" }}>
+                <input
+                  type="checkbox"
+                  checked={createWithRalph}
+                  onChange={(e) => setCreateWithRalph(e.target.checked)}
+                />
+                Initialize with Ralph Loop
+              </label>
             </div>
             <div className="new-project-actions-row">
               <button type="button" className="ghost-button" onClick={() => void handlePickProjectDirectory()}>

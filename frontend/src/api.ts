@@ -103,6 +103,7 @@ export async function syncProjects(): Promise<ProjectsSyncResponse> {
 export async function createProject(input: {
   name: string;
   path: string;
+  useRalphLoop?: boolean;
 }): Promise<Project> {
   const data = await request<{ project: Project }>("/api/projects", {
     method: "POST",
