@@ -466,7 +466,7 @@ function QuestionCard({
         <span>{question.id}</span>
       </header>
       <div className="question-card-body">
-        {question.questions.map((info, questionIndex) => {
+        {(question.questions ?? []).map((info, questionIndex) => {
           const selectedValues = draft.optionSelections[questionIndex] ?? [];
           const customValue = draft.customValues[questionIndex] ?? "";
           return (
@@ -476,7 +476,8 @@ function QuestionCard({
                 <small>{info.question}</small>
               </div>
               <div className="question-options">
-                {info.options.map((option) => {
+                {info.options.map((option, optionIndex) => {
+                  const letter = String.fromCharCode(65 + optionIndex);
                   const selected = selectedValues.includes(option.label);
                   return (
                     <label key={option.label} className={`question-option ${selected ? "selected" : ""}`}>
@@ -487,7 +488,7 @@ function QuestionCard({
                         onChange={() => onToggleOption(questionIndex, option.label, Boolean(info.multiple))}
                       />
                       <span>
-                        <strong>{option.label}</strong>
+                        <strong>({letter}) {option.label}</strong>
                         <small>{option.description}</small>
                       </span>
                     </label>
@@ -1433,7 +1434,7 @@ function parseQuestionFromStreamData(data: string): {
             ? properties.sessionId
             : null;
       const questions = Array.isArray(properties.questions) ? properties.questions : null;
-      if (!id || !sessionID || !questions) {
+      if (!id || !sessionID || !questions || questions.length === 0) {
         return { request: null, resolvedQuestionId: null };
       }
       return {
@@ -3835,6 +3836,7 @@ export function App() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaChunksRef = useRef<BlobPart[]>([]);
+  const prevQuestionCountRef = useRef(0);
   const speakingAudioRef = useRef<HTMLAudioElement | null>(null);
   const speakingUrlRef = useRef<string | null>(null);
   const messageLoadRequestRef = useRef(0);
@@ -6093,6 +6095,20 @@ export function App() {
     body.scrollTop += nextTop - pendingAnchor.top;
     pendingScrollAnchorRef.current = null;
   }, [isChatNearBottom, renderedTimelineEntries]);
+
+  useEffect(() => {
+    const body = chatBodyRef.current;
+    if (pendingQuestions.length > 0 && prevQuestionCountRef.current === 0 && body) {
+      const card = body.querySelector(".question-card");
+      if (card) {
+        const cardRect = card.getBoundingClientRect();
+        const bodyRect = body.getBoundingClientRect();
+        const offsetTop = cardRect.top - bodyRect.top + body.scrollTop - 24;
+        body.scrollTo({ top: Math.max(0, offsetTop), behavior: "smooth" });
+      }
+    }
+    prevQuestionCountRef.current = pendingQuestions.length;
+  }, [pendingQuestions.length]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {

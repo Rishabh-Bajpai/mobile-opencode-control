@@ -429,6 +429,9 @@ def _get_project_pending_questions(
         question_id = str(item.get("id") or "").strip()
         if not question_id:
             continue
+        questions_raw = item.get("questions")
+        if not isinstance(questions_raw, list) or len(questions_raw) == 0:
+            continue
         questions.append(item)
 
     if session_id is None:
@@ -779,6 +782,9 @@ def _parse_question_event(event_lines: list[str]) -> tuple[dict | None, str | No
         )
         question_id = str(properties.get("id") or "").strip()
         if not question_id:
+            return None, None
+        questions_raw = properties.get("questions")
+        if not isinstance(questions_raw, list) or len(questions_raw) == 0:
             return None, None
         return dict(properties), None
 
@@ -2577,8 +2583,8 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             else:
                 _clear_project_pending_questions(project.id)
             db.session.commit()
-        except Exception:
-            pass
+        except Exception as exc:
+            app.logger.warning("Failed to list upstream questions for project %s: %s", project.id, exc)
 
         return jsonify({"questions": _get_project_pending_questions(project.id, session_id)})
 

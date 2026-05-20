@@ -2862,6 +2862,140 @@ input {
   gap: 0.45rem;
 }
 
+.question-card {
+  border: 1px solid rgba(100, 140, 200, 0.45);
+  border-radius: 12px;
+  background: rgba(20, 40, 70, 0.7);
+  padding: 0.65rem 0.75rem;
+}
+
+.question-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.question-card header strong {
+  color: #9bc4ff;
+  font-size: 0.9rem;
+}
+
+.question-card header span {
+  color: #6f8db5;
+  font-size: 0.72rem;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+}
+
+.question-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.question-block {
+  background: rgba(15, 30, 50, 0.5);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+}
+
+.question-block-head {
+  margin-bottom: 0.4rem;
+}
+
+.question-block-head strong {
+  display: block;
+  color: #b8d4f0;
+  font-size: 0.85rem;
+  margin-bottom: 0.15rem;
+}
+
+.question-block-head small {
+  color: #8aaac8;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.question-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(100, 140, 200, 0.25);
+  background: rgba(25, 50, 85, 0.4);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.question-option:hover {
+  background: rgba(40, 75, 130, 0.5);
+  border-color: rgba(100, 140, 200, 0.5);
+}
+
+.question-option.selected {
+  background: rgba(50, 100, 180, 0.45);
+  border-color: #6a9fd8;
+}
+
+.question-option input {
+  accent-color: #6a9fd8;
+}
+
+.question-option span strong {
+  display: block;
+  color: #c8dff5;
+  font-size: 0.83rem;
+}
+
+.question-option span small {
+  display: block;
+  color: #7a9fc5;
+  font-size: 0.73rem;
+  margin-top: 0.1rem;
+}
+
+.question-custom-input {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(100, 140, 200, 0.25);
+  background: rgba(15, 30, 55, 0.6);
+  color: #c8dff5;
+  font-size: 0.82rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.question-custom-input:focus {
+  border-color: #6a9fd8;
+}
+
+.question-custom-input::placeholder {
+  color: #5a7a9a;
+}
+
+.question-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+}
+
+.question-actions button {
+  flex: 1;
+}
+
 .approval-card {
   border: 1px solid rgba(255, 205, 86, 0.55);
   border-radius: 12px;
