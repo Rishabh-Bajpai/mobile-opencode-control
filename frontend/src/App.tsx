@@ -7114,6 +7114,17 @@ export function App() {
               />
             )}
           </section>
+        ) : activeMainView === "git" ? (
+          <section className="git-main-view">
+            {activeProject ? (
+              <GitView projectId={activeProject.id} mobile={isMobileViewport} />
+            ) : (
+              <ChatStateCard
+                title="No project selected"
+                detail="Pick a project to manage branches, changes, and commit history."
+              />
+            )}
+          </section>
         ) : (
           <section className="files-workspace">
             {activeProject ? (
@@ -7225,10 +7236,6 @@ export function App() {
                 />
               </div>
             </div>
-          </section>
-        ) : activeMainView === "git" ? (
-          <section className="git-main-view">
-            {activeProject && <GitView projectId={activeProject.id} />}
           </section>
         ) : null}
 
