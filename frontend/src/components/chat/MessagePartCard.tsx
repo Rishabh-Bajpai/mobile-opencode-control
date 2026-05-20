@@ -62,24 +62,6 @@ function ToolCallCard({ part }: { part: ToolPart }) {
     );
   }
 
-  let outputNode: React.ReactNode = null;
-  if (state.output) {
-    const truncated = state.metadata?.truncated;
-    const outputText = typeof state.output === "string"
-      ? state.output.length > 5000
-        ? state.output.slice(0, 5000) + "\n… (truncated)"
-        : state.output
-      : JSON.stringify(state.output, null, 2);
-    outputNode = (
-      <div className="tool-output">
-        <div className="tool-output-header">
-          Output{truncated ? " (truncated)" : ""}
-        </div>
-        <pre className="tool-output-content">{outputText}</pre>
-      </div>
-    );
-  }
-
   const matches = state.metadata?.matches;
   const matchInfo = typeof matches === "number" && matches > 0 ? `${matches} match${matches === 1 ? "" : "es"}` : null;
 
@@ -91,7 +73,6 @@ function ToolCallCard({ part }: { part: ToolPart }) {
         {matchInfo && <small className="tool-match-count">{matchInfo}</small>}
       </div>
       {inputSummary && <div className="tool-call-input">{inputSummary}</div>}
-      {outputNode}
     </div>
   );
 }

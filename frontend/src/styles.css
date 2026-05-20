@@ -2190,30 +2190,6 @@ input {
   word-break: break-all;
 }
 
-.tool-output {
-  margin-top: 0.3rem;
-}
-
-.tool-output-header {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  margin-bottom: 0.2rem;
-}
-
-.tool-output-content {
-  margin: 0;
-  padding: 0.45rem;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 6px;
-  font-size: 0.72rem;
-  line-height: 1.35;
-  max-height: 12rem;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: #a0b4c8;
-}
-
 .patch-card {
   padding: 0.5rem;
   border-top: 1px solid rgba(149, 166, 184, 0.15);
