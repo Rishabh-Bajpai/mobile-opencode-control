@@ -1057,7 +1057,7 @@ input {
 
 .git-main-view {
   flex: 1;
-  overflow-y: auto;
+  overflow-y: scroll;
   min-height: 0;
   background:
     radial-gradient(circle at top, rgba(82, 140, 214, 0.18), transparent 26%),
@@ -1093,7 +1093,8 @@ input {
 
 .git-hero-card {
   padding: 1.15rem 1.2rem;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 1rem;
 }
 
@@ -1174,26 +1175,31 @@ input {
 }
 
 .git-section-tabs {
-  display: inline-flex;
+  display: flex;
+  align-items: center;
   gap: 0.3rem;
-  width: fit-content;
   max-width: 100%;
   border: 1px solid rgba(115, 154, 190, 0.14);
   border-radius: 999px;
   background: rgba(18, 31, 46, 0.68);
   padding: 0.22rem;
-  overflow-x: auto;
+  box-sizing: border-box;
 }
 
 .git-section-tabs button {
+  flex: none;
+  height: 2.5rem;
   border: 0;
   border-radius: 999px;
-  min-height: 2.1rem;
   padding: 0 0.85rem;
   background: transparent;
   color: #b7cadc;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.git-section-tabs button:focus {
+  outline: none;
 }
 
 .git-section-tabs button.active {
