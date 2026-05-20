@@ -176,22 +176,40 @@ function getManualInstallMessage() {
 function RuntimeControls({
   models,
   agents,
+  sessions,
+  activeSessionId,
   selectedModel,
   selectedAgent,
   saving,
+  sessionLoading,
+  sessionSwitching,
   error,
   onModelChange,
   onAgentChange,
+  onSessionChange,
+  onSessionCreate,
+  onSessionDelete,
 }: {
   models: RuntimeModelOption[];
   agents: RuntimeAgentOption[];
+  sessions: ProjectSession[];
+  activeSessionId: string | null;
   selectedModel: string | null;
   selectedAgent: string | null;
   saving: boolean;
+  sessionLoading: boolean;
+  sessionSwitching: boolean;
   error: string | null;
   onModelChange: (value: string | null) => void;
   onAgentChange: (value: string | null) => void;
+  onSessionChange: (value: string) => void;
+  onSessionCreate: () => void;
+  onSessionDelete: () => void;
 }) {
+  const sortedSessions = useMemo(
+    () => sortSessionsForDisplay(sessions, activeSessionId),
+    [sessions, activeSessionId]
+  );
   return (
     <div className="runtime-controls">
       <label>
@@ -225,105 +243,43 @@ function RuntimeControls({
           ))}
         </select>
       </label>
+      {sortedSessions.length === 0 ? (
+        <div className="session-tabs-empty">{sessionLoading ? "Loading sessions..." : "No session selected"}</div>
+      ) : (
+        <label>
+          <span>Session</span>
+          <select
+            value={activeSessionId ?? ""}
+            onChange={(e) => onSessionChange(e.target.value)}
+            disabled={sessionLoading || sessionSwitching}
+          >
+            {sortedSessions.map((session) => (
+              <option key={session.id} value={session.id}>
+                {session.title || "Untitled session"} — {formatSessionTimestamp(session.updatedAt ?? session.createdAt)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <div className="session-actions-row">
+        <button type="button" className="secondary-button" onClick={onSessionCreate} disabled={sessionLoading || sessionSwitching}>
+          {sessionSwitching ? "Working..." : "New session"}
+        </button>
+        <button
+          type="button"
+          className="secondary-button session-delete-button"
+          onClick={onSessionDelete}
+          disabled={sessionLoading || sessionSwitching || !activeSessionId}
+        >
+          Delete
+        </button>
+      </div>
       {saving ? <small>Saving runtime...</small> : null}
       {error ? <small className="runtime-error">{error}</small> : null}
     </div>
   );
 }
 
-function SessionTabs({
-  sessions,
-  activeSessionId,
-  loading,
-  switching,
-  switchTargetLabel,
-  error,
-  onChange,
-  onCreate,
-  onDelete,
-}: {
-  sessions: ProjectSession[];
-  activeSessionId: string | null;
-  loading: boolean;
-  switching: boolean;
-  switchTargetLabel: string | null;
-  error: string | null;
-  onChange: (value: string) => void;
-  onCreate: () => void;
-  onDelete: () => void;
-}) {
-  const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
-  const sortedSessions = useMemo(
-    () => sortSessionsForDisplay(sessions, activeSessionId),
-    [sessions, activeSessionId]
-  );
-  const deleteTargetLabel = activeSession
-    ? `${activeSession.title || "Untitled session"} (${formatCompactSessionId(activeSession.id)})`
-    : null;
-
-  return (
-    <div className="session-tabs-shell">
-      <div className="session-tabs-head">
-        <span>Sessions</span>
-        <div className="session-tabs-actions">
-          <button type="button" className="secondary-button" onClick={onCreate} disabled={loading || switching}>
-            {switching ? "Working..." : "New session"}
-          </button>
-          <button
-            type="button"
-            className="secondary-button session-delete-button"
-            onClick={onDelete}
-            disabled={loading || switching || !activeSession}
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-      <div className="session-tabs" role="tablist" aria-label="Project sessions">
-        {sortedSessions.length === 0 ? (
-          <div className="session-tabs-empty">{loading ? "Loading sessions..." : "No session selected"}</div>
-        ) : (
-          sortedSessions.map((session) => (
-            <button
-              key={session.id}
-              type="button"
-              role="tab"
-              aria-selected={session.id === activeSessionId}
-              className={session.id === activeSessionId ? "active" : ""}
-              onClick={() => onChange(session.id)}
-              disabled={loading || switching}
-              title={buildSessionTabLabel(session)}
-            >
-              <strong>{session.title || "Untitled session"}</strong>
-              <small>{formatSessionTimestamp(session.updatedAt ?? session.createdAt)}</small>
-            </button>
-          ))
-        )}
-      </div>
-      {activeSession ? (
-        <div className="session-controls-meta">
-          {switching ? (
-            <small className="session-switch-status">
-              Switching to {switchTargetLabel || "selected session"}...
-            </small>
-          ) : null}
-          <small>{formatSessionOptionLabel(activeSession, activeSessionId)}</small>
-          <small>
-            {formatCompactSessionId(activeSession.id)}
-            {activeSession.summary.files > 0
-              ? ` · +${activeSession.summary.additions}/-${activeSession.summary.deletions}`
-              : ""}
-          </small>
-          <small className="session-delete-hint">Delete target: {deleteTargetLabel}</small>
-          <small className="session-delete-warning">
-            Deleting the current session will switch this project to the next most recent session.
-          </small>
-        </div>
-      ) : null}
-      {error ? <small className="runtime-error">{error}</small> : null}
-    </div>
-  );
-}
 
 function NotificationControls({
   supported,
@@ -7517,37 +7473,33 @@ export function App() {
                     <strong>Runtime</strong>
                     <span>Model and agent</span>
                   </div>
-                  <RuntimeControls
-                    models={runtimeModels}
-                    agents={runtimeAgents}
-                    selectedModel={selectedModel}
-                    selectedAgent={selectedAgent}
-                    saving={runtimeSaving || runtimeLoading}
-                    error={runtimeError}
-                    onModelChange={(value) => {
-                      void saveProjectRuntimeSelection({ model: value, agent: selectedAgent });
-                    }}
-                    onAgentChange={(value) => {
-                      void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
-                    }}
-                  />
-                  <SessionTabs
-                    sessions={projectSessions}
-                    activeSessionId={activeSessionId}
-                    loading={sessionLoading}
-                    switching={sessionSwitching}
-                    switchTargetLabel={sessionSwitchTargetLabel}
-                    error={sessionError}
-                    onChange={(value) => {
-                      void handleSwitchSession(value);
-                    }}
-                    onCreate={() => {
-                      void handleCreateSession();
-                    }}
-                    onDelete={() => {
-                      void handleDeleteSession();
-                    }}
-                  />
+                   <RuntimeControls
+                     models={runtimeModels}
+                     agents={runtimeAgents}
+                     sessions={projectSessions}
+                     activeSessionId={activeSessionId}
+                     selectedModel={selectedModel}
+                     selectedAgent={selectedAgent}
+                     saving={runtimeSaving || runtimeLoading}
+                     sessionLoading={sessionLoading}
+                     sessionSwitching={sessionSwitching}
+                     error={runtimeError}
+                     onModelChange={(value) => {
+                       void saveProjectRuntimeSelection({ model: value, agent: selectedAgent });
+                     }}
+                     onAgentChange={(value) => {
+                       void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
+                     }}
+                     onSessionChange={(value) => {
+                       void handleSwitchSession(value);
+                     }}
+                     onSessionCreate={() => {
+                       void handleCreateSession();
+                     }}
+                     onSessionDelete={() => {
+                       void handleDeleteSession();
+                     }}
+                   />
                 </div>
 
                 <div className="toolbar-card notifications-card">
@@ -7975,37 +7927,33 @@ export function App() {
                   <strong>Runtime</strong>
                   <span>Model, agent, and session</span>
                 </div>
-                <RuntimeControls
-                  models={runtimeModels}
-                  agents={runtimeAgents}
-                  selectedModel={selectedModel}
-                  selectedAgent={selectedAgent}
-                  saving={runtimeSaving || runtimeLoading}
-                  error={runtimeError}
-                  onModelChange={(value) => {
-                    void saveProjectRuntimeSelection({ model: value, agent: selectedAgent });
-                  }}
-                  onAgentChange={(value) => {
-                    void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
-                  }}
-                />
-                <SessionTabs
-                  sessions={projectSessions}
-                  activeSessionId={activeSessionId}
-                  loading={sessionLoading}
-                  switching={sessionSwitching}
-                  switchTargetLabel={sessionSwitchTargetLabel}
-                  error={sessionError}
-                  onChange={(value) => {
-                    void handleSwitchSession(value);
-                  }}
-                  onCreate={() => {
-                    void handleCreateSession();
-                  }}
-                  onDelete={() => {
-                    void handleDeleteSession();
-                  }}
-                  />
+                 <RuntimeControls
+                   models={runtimeModels}
+                   agents={runtimeAgents}
+                   sessions={projectSessions}
+                   activeSessionId={activeSessionId}
+                   selectedModel={selectedModel}
+                   selectedAgent={selectedAgent}
+                   saving={runtimeSaving || runtimeLoading}
+                   sessionLoading={sessionLoading}
+                   sessionSwitching={sessionSwitching}
+                   error={runtimeError}
+                   onModelChange={(value) => {
+                     void saveProjectRuntimeSelection({ model: value, agent: selectedAgent });
+                   }}
+                   onAgentChange={(value) => {
+                     void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
+                   }}
+                   onSessionChange={(value) => {
+                     void handleSwitchSession(value);
+                   }}
+                   onSessionCreate={() => {
+                     void handleCreateSession();
+                   }}
+                   onSessionDelete={() => {
+                     void handleDeleteSession();
+                   }}
+                 />
                 </div>
               <div className="toolbar-card notifications-card">
                 <NotificationControls

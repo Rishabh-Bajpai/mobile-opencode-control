@@ -794,35 +794,56 @@ input {
   color: #ffd0d0 !important;
 }
 
-.session-controls {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 0.45rem 0.65rem;
-  align-items: end;
+.session-tabs-shell {
   margin-top: 0.65rem;
   padding-top: 0.65rem;
   border-top: 1px solid rgba(53, 79, 105, 0.42);
 }
 
-.session-controls label {
-  display: grid;
-  gap: 0.18rem;
+.session-tabs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
 }
 
-.session-controls span,
-.session-controls small {
+.session-tabs-head span {
   color: var(--text-muted);
   font-size: 0.72rem;
 }
 
-.session-controls select,
-.session-controls button {
-  min-height: 36px;
+.session-tabs-actions {
+  display: flex;
+  gap: 0.35rem;
 }
 
-.session-controls select {
+.session-actions-row {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.session-tabs {
+  display: flex;
+  flex-direction: column;
+}
+
+.session-tabs label {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.session-tabs label span {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.session-tabs select {
   min-width: 0;
   width: 100%;
+  min-height: 36px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #0f1b29;
@@ -830,8 +851,10 @@ input {
   padding: 0 0.6rem;
 }
 
-.session-controls small {
-  grid-column: 1 / -1;
+.session-tabs-empty {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding: 0.3rem 0;
 }
 
 .session-controls-meta {
@@ -3995,15 +4018,17 @@ input {
     color: #fff;
   }
 
-  .runtime-controls,
-  .session-controls {
+  .runtime-controls {
     grid-template-columns: 1fr;
   }
 
-  .runtime-controls select,
-  .session-controls select,
-  .session-controls button {
+  .runtime-controls select {
     width: 100%;
+    min-height: 2.7rem;
+    border-radius: 14px;
+  }
+
+  .session-tabs select {
     min-height: 2.7rem;
     border-radius: 14px;
   }
