@@ -2047,11 +2047,14 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             return jsonify({"prd": None})
 
         try:
-            import json as _json
             text = prd_path.read_text(encoding="utf-8")
-            prd_data = _json.loads(text)
-        except Exception as exc:
-            return jsonify({"error": f"Unable to read prd.json: {exc}"}), 500
+        except OSError:
+            return jsonify({"error": "Unable to read prd.json"}), 500
+
+        try:
+            prd_data = json.loads(text)
+        except json.JSONDecodeError:
+            return jsonify({"error": "prd.json contains invalid JSON"}), 500
 
         return jsonify({"prd": prd_data})
 
@@ -2063,7 +2066,7 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             return jsonify({"error": "Project not found"}), 404
 
         body = request.get_json(silent=True) or {}
-        prd_content = body.get("prd") or _DEFAULT_PRD_TEMPLATE
+        prd_content = body.get("prd") if body.get("prd") is not None else _DEFAULT_PRD_TEMPLATE
 
         if not isinstance(prd_content, dict):
             return jsonify({"error": "prd must be a JSON object"}), 400
@@ -2074,10 +2077,9 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             return jsonify({"error": str(exc)}), 400
 
         try:
-            import json as _json
-            prd_path.write_text(_json.dumps(prd_content, indent=2), encoding="utf-8")
-        except OSError as exc:
-            return jsonify({"error": f"Unable to write prd.json: {exc}"}), 500
+            prd_path.write_text(json.dumps(prd_content, indent=2), encoding="utf-8")
+        except OSError:
+            return jsonify({"error": "Unable to write prd.json"}), 500
 
         return jsonify({"prd": prd_content})
 
