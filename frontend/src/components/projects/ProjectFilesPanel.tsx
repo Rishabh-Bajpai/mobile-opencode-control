@@ -39,7 +39,13 @@ export function ProjectFilesPanel({
   contentError: string | null;
   mobile: boolean;
 }) {
-  const [collapsedDirectories, setCollapsedDirectories] = useState<Set<string>>(new Set());
+  const [collapsedDirectories, setCollapsedDirectories] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    for (const entry of entries) {
+      if (entry.isDir) initial.add(entry.path);
+    }
+    return initial;
+  });
   const [listScrollTop, setListScrollTop] = useState(0);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [treePaneWidth, setTreePaneWidth] = useState(34);
@@ -52,7 +58,11 @@ export function ProjectFilesPanel({
   const resizingSplitterRef = useRef(false);
 
   useEffect(() => {
-    setCollapsedDirectories(new Set());
+    const initial = new Set<string>();
+    for (const entry of entries) {
+      if (entry.isDir) initial.add(entry.path);
+    }
+    setCollapsedDirectories(initial);
     setListScrollTop(0);
     setFocusedIndex(0);
     setTreePaneWidth(34);
@@ -106,25 +116,6 @@ export function ProjectFilesPanel({
       window.removeEventListener("pointerup", handlePointerUp);
     };
   }, [mobile]);
-
-  useEffect(() => {
-    if (dedupedEntries.length === 0) {
-      setCollapsedDirectories(new Set());
-      return;
-    }
-    setCollapsedDirectories((current) => {
-      if (current.size > 0) {
-        return current;
-      }
-      const next = new Set<string>();
-      for (const entry of dedupedEntries) {
-        if (entry.isDir && !loadedDirectories.includes(entry.path)) {
-          next.add(entry.path);
-        }
-      }
-      return next;
-    });
-  }, [dedupedEntries, loadedDirectories]);
 
   const visibleEntries = useMemo(() => {
     if (!normalizedQuery) {

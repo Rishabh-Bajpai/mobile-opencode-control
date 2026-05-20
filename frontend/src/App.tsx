@@ -1198,12 +1198,19 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
   const searchQuery = projectSearch.trim();
   const isSearchMode = searchQuery.length > 0;
   const visibleProjects = isSearchMode ? searchProjects : projects;
+  const sortedVisibleProjects = useMemo(() => {
+    return [...visibleProjects].sort((a, b) => {
+      if (a.id === activeProjectId) return -1;
+      if (b.id === activeProjectId) return 1;
+      return new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime();
+    });
+  }, [visibleProjects, activeProjectId]);
   const visibleProjectsHasMore = isSearchMode ? searchHasMore : projectsHasMore;
   const visibleProjectsTotal = isSearchMode ? searchTotal : projectsTotal;
   const isLoadingVisibleProjects = isSearchMode ? searchLoading : loadingMoreProjects;
   const searchSummaryLabel = searchQuery
-    ? `${visibleProjects.length} result${visibleProjects.length === 1 ? "" : "s"}${visibleProjectsTotal > visibleProjects.length ? ` of ${visibleProjectsTotal}` : ""} for "${searchQuery}"`
-    : `${visibleProjects.length} chat${visibleProjects.length === 1 ? "" : "s"}`;
+    ? `${sortedVisibleProjects.length} result${sortedVisibleProjects.length === 1 ? "" : "s"}${visibleProjectsTotal > sortedVisibleProjects.length ? ` of ${visibleProjectsTotal}` : ""} for "${searchQuery}"`
+    : `${sortedVisibleProjects.length} chat${sortedVisibleProjects.length === 1 ? "" : "s"}`;
   const reconnectElapsedMs = showReconnectFixture
     ? 42_000
     : reconnectStartedAtMs !== null
@@ -1432,7 +1439,7 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
     return () => {
       window.removeEventListener("resize", clampDesktopSidebarWidth);
     };
-  }, [isMobileViewport, visibleProjects.length]);
+  }, [isMobileViewport, sortedVisibleProjects.length]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1529,7 +1536,7 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
   }, [isAuthenticated, searchQuery]);
 
   useEffect(() => {
-    if (visibleProjects.length === 0) {
+    if (sortedVisibleProjects.length === 0) {
       setHighlightedProjectId(null);
       return;
     }
@@ -1538,17 +1545,17 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
       return;
     }
 
-    if (highlightedProjectId && visibleProjects.some((project) => project.id === highlightedProjectId)) {
+    if (highlightedProjectId && sortedVisibleProjects.some((project) => project.id === highlightedProjectId)) {
       return;
     }
 
-    if (activeProjectId && visibleProjects.some((project) => project.id === activeProjectId)) {
+    if (activeProjectId && sortedVisibleProjects.some((project) => project.id === activeProjectId)) {
       setHighlightedProjectId(activeProjectId);
       return;
     }
 
-    setHighlightedProjectId(visibleProjects[0].id);
-  }, [visibleProjects, highlightedProjectId, activeProjectId, isSearchMode, searchLoading]);
+    setHighlightedProjectId(sortedVisibleProjects[0].id);
+  }, [sortedVisibleProjects, highlightedProjectId, activeProjectId, isSearchMode, searchLoading]);
 
   useEffect(() => {
     function isEditableTarget(target: EventTarget | null): boolean {
@@ -1588,22 +1595,22 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
         document.activeElement === mobileProjectSearchInputRef.current;
       if (isSearchFocused && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
         event.preventDefault();
-        if (visibleProjects.length === 0) {
+        if (sortedVisibleProjects.length === 0) {
           return;
         }
 
         const currentIndex = highlightedProjectId
-          ? visibleProjects.findIndex((project) => project.id === highlightedProjectId)
+          ? sortedVisibleProjects.findIndex((project) => project.id === highlightedProjectId)
           : -1;
 
         if (event.key === "ArrowDown") {
-          const nextIndex = Math.min(visibleProjects.length - 1, Math.max(0, currentIndex + 1));
-          setHighlightedProjectId(visibleProjects[nextIndex].id);
+          const nextIndex = Math.min(sortedVisibleProjects.length - 1, Math.max(0, currentIndex + 1));
+          setHighlightedProjectId(sortedVisibleProjects[nextIndex].id);
           return;
         }
 
         const nextIndex = Math.max(0, currentIndex <= 0 ? 0 : currentIndex - 1);
-        setHighlightedProjectId(visibleProjects[nextIndex].id);
+        setHighlightedProjectId(sortedVisibleProjects[nextIndex].id);
         return;
       }
 
@@ -1633,7 +1640,7 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [isAuthenticated, visibleProjects, highlightedProjectId]);
+  }, [isAuthenticated, sortedVisibleProjects, highlightedProjectId]);
 
   async function loadMessages(
     projectId: string,
@@ -3454,7 +3461,7 @@ async function loadDiff(projectId: string) {
     const snapshot = {
       capturedAt: new Date().toISOString(),
       mode: isSearchMode ? "search" : "base",
-      renderedProjects: visibleProjects.length,
+      renderedProjects: sortedVisibleProjects.length,
       visibleTotal: visibleProjectsTotal,
       activeProjectId,
       highlightedProjectId,
@@ -3566,7 +3573,7 @@ async function loadDiff(projectId: string) {
               </span>
               <div>
                 <h1>OpenCode</h1>
-                <p>{visibleProjects.length} chats</p>
+                <p>{sortedVisibleProjects.length} chats</p>
               </div>
             </div>
             <div className="mobile-projects-actions">
@@ -3645,13 +3652,13 @@ async function loadDiff(projectId: string) {
           <div className="mobile-project-list-wrap">
             <VirtualizedProjectList
               key={searchQuery.toLowerCase()}
-              projects={visibleProjects}
+              projects={sortedVisibleProjects}
               activeProjectId={activeProjectId}
               highlightedProjectId={null}
               onSelect={handleSelectProject}
               emptyLabel={searchQuery ? "No matching chats" : "No chats yet"}
               searchQuery={searchQuery}
-              totalLabel={`${visibleProjects.length} shown`}
+              totalLabel={`${sortedVisibleProjects.length} shown`}
               hasMore={visibleProjectsHasMore}
               isLoadingMore={isLoadingVisibleProjects}
               rowHeight={72}
@@ -3669,8 +3676,8 @@ async function loadDiff(projectId: string) {
       <aside className="sidebar">
         <div className="sidebar-top">
           <h2>
-            Projects ({visibleProjects.length}
-            {visibleProjectsTotal > visibleProjects.length ? `/${visibleProjectsTotal}` : ""})
+            Projects ({sortedVisibleProjects.length}
+            {visibleProjectsTotal > sortedVisibleProjects.length ? `/${visibleProjectsTotal}` : ""})
           </h2>
           <div className="sidebar-actions">
             <button onClick={handleLogout} type="button">
@@ -3754,13 +3761,13 @@ async function loadDiff(projectId: string) {
 
         <VirtualizedProjectList
           key={searchQuery.toLowerCase()}
-          projects={visibleProjects}
+          projects={sortedVisibleProjects}
           activeProjectId={activeProjectId}
           highlightedProjectId={highlightedProjectId}
           onSelect={handleSelectProject}
           emptyLabel={searchQuery ? "No matching projects" : "No projects yet"}
           searchQuery={searchQuery}
-          totalLabel={`${visibleProjects.length} shown${visibleProjectsTotal > visibleProjects.length ? ` of ${visibleProjectsTotal}` : ""}`}
+          totalLabel={`${sortedVisibleProjects.length} shown${visibleProjectsTotal > sortedVisibleProjects.length ? ` of ${visibleProjectsTotal}` : ""}`}
           hasMore={visibleProjectsHasMore}
           isLoadingMore={isLoadingVisibleProjects}
           rowHeight={84}

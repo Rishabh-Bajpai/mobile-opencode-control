@@ -615,6 +615,8 @@ def _resolve_project_session(
         else None
     ) or project.last_session_id
 
+    had_candidate = candidate_session_id is not None
+
     if candidate_session_id:
         try:
             session = opencode_client.get_session(candidate_session_id)
@@ -628,7 +630,7 @@ def _resolve_project_session(
         except requests.HTTPError as exc:
             project.last_session_id = None
             db.session.commit()
-            if session_id:
+            if had_candidate:
                 raise ValueError("Selected session could not be loaded") from exc
 
         if session_id:
