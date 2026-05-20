@@ -35,6 +35,7 @@ export interface ProjectsSyncResponse {
 export interface AppStateResponse {
   activeProjectId: string | null;
   defaultProjectRoot: string | null;
+  defaultModel: string | null;
 }
 
 export interface ChatMessage {

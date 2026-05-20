@@ -226,9 +226,24 @@ def select_project(project_id: int):
 @auth_required
 def get_state():
     active_project_id = _get_setting("active_project_id")
+    default_model = _get_setting("default_model")
     return jsonify(
         {
             "activeProjectId": active_project_id,
             "defaultProjectRoot": settings.default_project_root,
+            "defaultModel": default_model,
         }
     )
+
+
+@api_bp.put("/settings")
+@auth_required
+def update_app_settings():
+    body = request.get_json(silent=True) or {}
+    default_model = body.get("defaultModel")
+    if isinstance(default_model, str) and default_model.strip():
+        _set_setting("default_model", default_model.strip())
+    else:
+        _delete_setting("default_model")
+    db.session.commit()
+    return jsonify({"ok": True, "defaultModel": _get_setting("default_model")})

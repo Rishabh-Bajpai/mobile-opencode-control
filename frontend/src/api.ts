@@ -70,6 +70,13 @@ export async function fetchAppState(): Promise<AppStateResponse> {
   return request<AppStateResponse>("/api/state");
 }
 
+export async function updateAppSettings(input: { defaultModel: string | null }): Promise<{ ok: boolean; defaultModel: string | null }> {
+  return request("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function fetchLanUrl(): Promise<{ url: string | null; port: number; ip: string | null }> {
   const response = await fetch("/api/lan-url");
   if (!response.ok) {

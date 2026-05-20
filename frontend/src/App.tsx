@@ -49,6 +49,7 @@ import {
   projectFileDownloadUrl,
   syncProjects,
   transcribeAudio,
+  updateAppSettings,
   updateNotificationSettings,
   updateProjectRuntime,
   updateProjectSession,
@@ -233,6 +234,8 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
   const [runtimeAgents, setRuntimeAgents] = useState<RuntimeAgentOption[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [globalDefaultModel, setGlobalDefaultModel] = useState<string | null>(null);
+  const [globalDefaultModelSaving, setGlobalDefaultModelSaving] = useState(false);
   const [runtimeLoading, setRuntimeLoading] = useState(false);
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
@@ -661,6 +664,19 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
     }
   }
 
+  async function handleSaveGlobalDefaultModel(value: string | null) {
+    setGlobalDefaultModelSaving(true);
+    setProjectError(null);
+    try {
+      const result = await updateAppSettings({ defaultModel: value });
+      setGlobalDefaultModel(result.defaultModel);
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : "Failed to save default model");
+    } finally {
+      setGlobalDefaultModelSaving(false);
+    }
+  }
+
   async function handleTestNtfy() {
     setNotificationTesting(true);
     setProjectError(null);
@@ -911,6 +927,9 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
         const normalizedDefaultRoot = normalizeProjectRootPath(appState.defaultProjectRoot || "");
         if (normalizedDefaultRoot) {
           setDefaultProjectRoot(normalizedDefaultRoot);
+        }
+        if (appState.defaultModel) {
+          setGlobalDefaultModel(appState.defaultModel);
         }
         await loadNotificationSettings();
         const nextActiveProjectId = await refreshProjectsAndStatus();
@@ -4132,6 +4151,7 @@ async function loadDiff(projectId: string) {
                      activeSessionId={activeSessionId}
                      selectedModel={selectedModel}
                      selectedAgent={selectedAgent}
+                     globalDefaultModel={globalDefaultModel}
                      saving={runtimeSaving || runtimeLoading}
                      sessionLoading={sessionLoading}
                      sessionSwitching={sessionSwitching}
@@ -4154,7 +4174,29 @@ async function loadDiff(projectId: string) {
                    />
                 </div>
 
-                <div className="toolbar-card notifications-card">
+                <div className="toolbar-card settings-card">
+                  <div className="toolbar-card-head">
+                    <strong>Settings</strong>
+                    <span>Default model and notifications</span>
+                  </div>
+                  <label className="settings-default-model">
+                    <span>Default model</span>
+                    <select
+                      value={globalDefaultModel ?? ""}
+                      onChange={(event) => {
+                        void handleSaveGlobalDefaultModel(event.currentTarget.value || null);
+                      }}
+                      disabled={globalDefaultModelSaving}
+                    >
+                      <option value="">Server default</option>
+                      {runtimeModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.providerName} / {model.name}
+                          {model.isDefault ? " (default)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <NotificationControls
                     supported={notificationPermission !== "unsupported"}
                     enabled={notificationsEnabled}
@@ -4462,6 +4504,7 @@ async function loadDiff(projectId: string) {
                 previewRuns={taskPreviewRuns}
                 runtimeModels={runtimeModels}
                 runtimeAgents={runtimeAgents}
+                globalDefaultModel={globalDefaultModel}
                 ralphPanel={
                   <RalphLoopPanel
                     prdData={prdData}
@@ -4575,61 +4618,84 @@ async function loadDiff(projectId: string) {
             </div>
             <div className="mobile-settings-screen-body">
               <div className="toolbar-card runtime-card">
-                <div className="toolbar-card-head">
-                  <strong>Runtime</strong>
-                  <span>Model, agent, and session</span>
-                </div>
-                 <RuntimeControls
-                   models={runtimeModels}
-                   agents={runtimeAgents}
-                   sessions={projectSessions}
-                   activeSessionId={activeSessionId}
-                   selectedModel={selectedModel}
-                   selectedAgent={selectedAgent}
-                   saving={runtimeSaving || runtimeLoading}
-                   sessionLoading={sessionLoading}
-                   sessionSwitching={sessionSwitching}
-                   error={runtimeError}
-                   onModelChange={(value) => {
-                     void saveProjectRuntimeSelection({ model: value, agent: selectedAgent });
+                 <div className="toolbar-card-head">
+                   <strong>Runtime</strong>
+                   <span>Model, agent, and session</span>
+                 </div>
+                  <RuntimeControls
+                    models={runtimeModels}
+                    agents={runtimeAgents}
+                    sessions={projectSessions}
+                    activeSessionId={activeSessionId}
+                    selectedModel={selectedModel}
+                    selectedAgent={selectedAgent}
+                    globalDefaultModel={globalDefaultModel}
+                    saving={runtimeSaving || runtimeLoading}
+                    sessionLoading={sessionLoading}
+                    sessionSwitching={sessionSwitching}
+                    error={runtimeError}
+                    onModelChange={(value) => {
+                      void saveProjectRuntimeSelection({ model: value, agent: selectedAgent });
+                    }}
+                    onAgentChange={(value) => {
+                      void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
+                    }}
+                    onSessionChange={(value) => {
+                      void handleSwitchSession(value);
+                    }}
+                    onSessionCreate={() => {
+                      void handleCreateSession();
+                    }}
+                    onSessionDelete={() => {
+                      void handleDeleteSession();
+                    }}
+                  />
+                 </div>
+               <div className="toolbar-card settings-card">
+                 <div className="toolbar-card-head">
+                   <strong>Settings</strong>
+                   <span>Default model and notifications</span>
+                 </div>
+                 <label className="settings-default-model">
+                   <span>Default model</span>
+                   <select
+                     value={globalDefaultModel ?? ""}
+                     onChange={(event) => {
+                       void handleSaveGlobalDefaultModel(event.currentTarget.value || null);
+                     }}
+                     disabled={globalDefaultModelSaving}
+                   >
+                     <option value="">Server default</option>
+                     {runtimeModels.map((model) => (
+                       <option key={model.id} value={model.id}>
+                         {model.providerName} / {model.name}
+                         {model.isDefault ? " (default)" : ""}
+                       </option>
+                     ))}
+                   </select>
+                 </label>
+                 <NotificationControls
+                   supported={notificationPermission !== "unsupported"}
+                   enabled={notificationsEnabled}
+                   permission={notificationPermission}
+                   channel={notificationChannel}
+                   ntfyTopicUrl={ntfyTopicUrl}
+                   saving={notificationSettingsSaving}
+                   testing={notificationTesting}
+                   onEnable={() => {
+                     void handleEnableNotifications();
                    }}
-                   onAgentChange={(value) => {
-                     void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
+                   onDisable={handleDisableNotifications}
+                   onChannelChange={setNotificationChannel}
+                   onNtfyTopicUrlChange={setNtfyTopicUrl}
+                   onSaveSettings={() => {
+                     void handleSaveNotificationSettings();
                    }}
-                   onSessionChange={(value) => {
-                     void handleSwitchSession(value);
-                   }}
-                   onSessionCreate={() => {
-                     void handleCreateSession();
-                   }}
-                   onSessionDelete={() => {
-                     void handleDeleteSession();
+                   onTestNtfy={() => {
+                     void handleTestNtfy();
                    }}
                  />
-                </div>
-              <div className="toolbar-card notifications-card">
-                <NotificationControls
-                  supported={notificationPermission !== "unsupported"}
-                  enabled={notificationsEnabled}
-                  permission={notificationPermission}
-                  channel={notificationChannel}
-                  ntfyTopicUrl={ntfyTopicUrl}
-                  saving={notificationSettingsSaving}
-                  testing={notificationTesting}
-                  onEnable={() => {
-                    void handleEnableNotifications();
-                  }}
-                  onDisable={handleDisableNotifications}
-                  onChannelChange={setNotificationChannel}
-                  onNtfyTopicUrlChange={setNtfyTopicUrl}
-                  onSaveSettings={() => {
-                    void handleSaveNotificationSettings();
-                  }}
-                  onTestNtfy={() => {
-                    void handleTestNtfy();
-                  }}
-                />
-              </div>
+               </div>
               <div className="toolbar-card install-card">
                 <InstallControls
                   canInstall={deferredInstallPrompt !== null}

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import type { RuntimeAgentOption, RuntimeModelOption, ScheduledTask, ScheduledTaskRun } from "../../types";
 import { formatRelativeTaskTime } from "../../utils/formatting";
 import { taskStatusTone } from "../../utils/taskUtils";
@@ -38,6 +38,7 @@ export function ScheduledTaskPanel({
   previewRuns,
   runtimeModels,
   runtimeAgents,
+  globalDefaultModel,
   ralphPanel,
   onNewTask,
   onSelectTask,
@@ -104,6 +105,7 @@ export function ScheduledTaskPanel({
   previewRuns: string[];
   runtimeModels: RuntimeModelOption[];
   runtimeAgents: RuntimeAgentOption[];
+  globalDefaultModel: string | null;
   ralphPanel?: React.ReactNode;
   onNewTask: () => void;
   onSelectTask: (task: ScheduledTask) => void;
@@ -138,6 +140,18 @@ export function ScheduledTaskPanel({
 }) {
   const taskTone = task ? taskStatusTone(task.lastStatus) : "idle";
   const visibleRuns = task ? runs.filter((run) => run.taskId === task.id) : runs;
+  const defaultModel = useMemo(() => {
+    if (globalDefaultModel) {
+      const found = runtimeModels.find((m) => m.id === globalDefaultModel);
+      if (found) return found;
+    }
+    return runtimeModels.find((m) => m.isDefault) ?? null;
+  }, [runtimeModels, globalDefaultModel]);
+  const defaultAgent = useMemo(() => {
+    const buildAgent = runtimeAgents.find((a) => a.id === "build");
+    if (buildAgent) return buildAgent;
+    return runtimeAgents.length > 0 ? runtimeAgents[0] : null;
+  }, [runtimeAgents]);
 
   return (
     <section className="tasks-workspace">
@@ -298,14 +312,14 @@ export function ScheduledTaskPanel({
                 <label>
                   <span>Model</span>
                   <select value={model} onChange={(event) => onModelChange(event.target.value)}>
-                    <option value="">Server default</option>
+                    <option value="">{defaultModel ? `${defaultModel.providerName} / ${defaultModel.name}` : "Server default"}</option>
                     {runtimeModels.map((item) => <option key={item.id} value={item.id}>{item.providerName} / {item.name}</option>)}
                   </select>
                 </label>
                 <label>
                   <span>Agent</span>
                   <select value={agent} onChange={(event) => onAgentChange(event.target.value)}>
-                    <option value="">Server default</option>
+                    <option value="">{defaultAgent ? defaultAgent.id : "Server default"}</option>
                     {runtimeAgents.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}
                   </select>
                 </label>

@@ -741,6 +741,14 @@ input {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.45rem 0.65rem;
   align-items: end;
+  min-width: 0;
+}
+
+.runtime-controls label {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .secondary-button {
@@ -748,11 +756,6 @@ input {
   border-radius: 10px;
   background: rgba(20, 36, 54, 0.92) !important;
   color: #cce1f5;
-}
-
-.runtime-controls label {
-  display: grid;
-  gap: 0.18rem;
 }
 
 .runtime-controls span,
@@ -764,6 +767,7 @@ input {
 .runtime-controls select {
   min-width: 0;
   width: 100%;
+  max-width: 100%;
   min-height: 36px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -801,185 +805,23 @@ input {
 }
 
 .session-actions-row {
-  grid-column: 1 / -1;
   display: flex;
   gap: 0.35rem;
   margin-top: 0.25rem;
+  min-width: 0;
 }
 
 .session-section {
   grid-column: 1 / -1;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 0.3rem;
+  min-width: 0;
 }
 
 .session-section-label {
   color: var(--text-muted);
   font-size: 0.72rem;
-}
-
-.session-dropdown-wrapper {
-  position: relative;
-}
-
-.session-dropdown-trigger {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  min-height: 36px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #0f1b29;
-  color: var(--text-main);
-  padding: 0.4rem 0.6rem;
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  text-align: left;
-}
-
-.session-dropdown-trigger:hover:not(:disabled) {
-  border-color: rgba(95, 168, 255, 0.4);
-}
-
-.session-dropdown-trigger.open {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-}
-
-.session-dropdown-trigger:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.session-trigger-label {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 0.82rem;
-  font-weight: 500;
-}
-
-.session-trigger-time {
-  font-size: 0.68rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.session-trigger-chevron {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.session-dropdown-panel {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 100;
-  background: #0f1b29;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  max-height: 240px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-
-.session-dropdown-panel::-webkit-scrollbar {
-  width: 5px;
-}
-
-.session-dropdown-panel::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.session-dropdown-panel::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
-}
-
-.session-dropdown-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.5rem 0.7rem;
-  border: none;
-  background: transparent;
-  color: var(--text-main);
-  cursor: pointer;
-  transition: background 0.12s ease;
-  text-align: left;
-  font-size: 0.8rem;
-}
-
-.session-dropdown-item:hover:not(.session-dropdown-new) {
-  background: rgba(95, 168, 255, 0.08);
-}
-
-.session-dropdown-item.focused {
-  background: rgba(95, 168, 255, 0.1);
-  outline: 1px solid rgba(95, 168, 255, 0.3);
-}
-
-.session-dropdown-item.active {
-  background: rgba(95, 168, 255, 0.12);
-  border-left: 2px solid var(--accent);
-  padding-left: calc(0.7rem - 2px);
-}
-
-.session-dropdown-item.active .session-item-label {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.session-dropdown-empty {
-  padding: 0.7rem;
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  text-align: center;
-}
-
-.session-dropdown-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 0.25rem 0.5rem;
-}
-
-.session-dropdown-new {
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.session-dropdown-new:hover {
-  background: rgba(95, 168, 255, 0.12) !important;
-}
-
-.session-dropdown-new.focused {
-  background: rgba(95, 168, 255, 0.15) !important;
-  outline: 1px solid rgba(95, 168, 255, 0.3);
-}
-
-.session-item-label {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.session-item-time {
-  font-size: 0.68rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-  flex-shrink: 0;
-  margin-left: 0.5rem;
 }
 
 .session-controls-meta {
@@ -1228,6 +1070,49 @@ input {
 .toolbar-card-head span {
   color: var(--text-muted);
   font-size: 0.72rem;
+}
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.settings-default-model {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.settings-default-model span {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.settings-default-model select {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(82, 114, 144, 0.35);
+  background: rgba(13, 22, 33, 0.85);
+  color: var(--text-main);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.settings-default-model select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.settings-card .notification-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings-card .notification-controls > .toolbar-card-head {
+  display: none;
 }
 
 .git-main-view {
@@ -4735,7 +4620,7 @@ input {
   }
 
   .runtime-controls {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .runtime-controls select {
@@ -4855,6 +4740,7 @@ input {
 
   .mobile-settings-screen-body {
     min-height: 0;
+    min-width: 0;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
     padding: 0.8rem 0.7rem calc(0.8rem + env(safe-area-inset-bottom));
@@ -4866,6 +4752,7 @@ input {
   .mobile-settings-screen .toolbar-card,
   .mobile-settings-screen .task-panel {
     margin: 0;
+    min-width: 0;
     border-radius: 20px;
     background: rgba(28, 40, 53, 0.92);
     border: 1px solid rgba(82, 114, 144, 0.18);
@@ -4874,6 +4761,15 @@ input {
 
   .mobile-settings-screen .toolbar-card-head {
     margin-bottom: 0.5rem;
+  }
+
+  .mobile-settings-screen .settings-card {
+    gap: 0.5rem;
+  }
+
+  .mobile-settings-screen .settings-default-model select {
+    font-size: 0.82rem;
+    padding: 0.5rem 0.6rem;
   }
 
   .mobile-settings-screen .notification-actions {
