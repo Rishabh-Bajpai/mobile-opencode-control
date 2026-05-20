@@ -5,6 +5,7 @@ import GitView from "./GitView";
 
 import {
   abortSession,
+  compactSession,
   createProjectSession,
   createProject,
   deleteProjectSession,
@@ -244,6 +245,7 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
   const [sessionSwitching, setSessionSwitching] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [sessionSwitchTargetLabel, setSessionSwitchTargetLabel] = useState<string | null>(null);
+  const [compacting, setCompacting] = useState(false);
   const [commandPickerOpen, setCommandPickerOpen] = useState(false);
   const [commandSearch, setCommandSearch] = useState("");
   const [expandedActivityEntries, setExpandedActivityEntries] = useState<Record<string, boolean>>({});
@@ -995,6 +997,22 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
     () => projectSessions.find((session) => session.id === activeSessionId) ?? null,
     [projectSessions, activeSessionId]
   );
+  const contextUsage = useMemo(() => {
+    const lastAssistant = messages.findLast((m) => m.role === "assistant" && m.tokens);
+    if (!lastAssistant?.tokens) return null;
+    const selectedModelOption = runtimeModels.find((m) => m.id === selectedModel) ?? null;
+    const contextLimit = selectedModelOption?.contextLimit ?? 0;
+    if (!contextLimit) return null;
+    const tokens = lastAssistant.tokens;
+    const totalUsed = tokens.input + tokens.output + tokens.reasoning + tokens.cacheRead + tokens.cacheWrite;
+    const percentage = Math.round((totalUsed / contextLimit) * 100);
+    return {
+      used: totalUsed,
+      limit: contextLimit,
+      percentage,
+      color: percentage >= 90 ? "red" : percentage >= 70 ? "yellow" : "green",
+    };
+  }, [messages, selectedModel, runtimeModels]);
   const showMobileProjectList = isMobileViewport && (mobileProjectListOpen || !activeProjectId);
   const filteredCommandList = useMemo(() => {
     const query = commandSearch.trim().toLowerCase();
@@ -2348,7 +2366,7 @@ async function loadDiff(projectId: string) {
             return next;
           });
         }
-        let needsFullRefresh = classification.hasMessageUpdate;
+        let needsFullRefresh = classification.hasMessageUpdate || classification.hasCompactionUpdate;
         if (classification.hasPartUpdate) {
           const eventLines = ((): string[] => {
             try {
@@ -3165,6 +3183,36 @@ async function loadDiff(projectId: string) {
     }
   }
 
+  async function handleCompactSession() {
+    if (!activeProjectId || !activeSessionId || compacting) {
+      return;
+    }
+
+    const modelToUse = selectedModel || (runtimeModels.find((m) => m.isDefault)?.id ?? null);
+    if (!modelToUse) {
+      setProjectError("No model selected. Select a model before compacting.");
+      return;
+    }
+    const slashIndex = modelToUse.indexOf("/");
+    if (slashIndex <= 0 || slashIndex === modelToUse.length - 1) {
+      setProjectError("Invalid model format.");
+      return;
+    }
+    const providerID = modelToUse.slice(0, slashIndex);
+    const modelID = modelToUse.slice(slashIndex + 1);
+
+    setCompacting(true);
+    setProjectError(null);
+    try {
+      await compactSession(activeProjectId, activeSessionId, providerID, modelID);
+      addTelemetryMarker("chat.compact", { projectId: activeProjectId });
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : "Failed to compact session");
+    } finally {
+      setCompacting(false);
+    }
+  }
+
   async function handleCreateProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setProjectError(null);
@@ -3783,8 +3831,8 @@ async function loadDiff(projectId: string) {
                 }
                 void loadMoreProjects();
               }}
-            />
-          </div>
+                    />
+                  </div>
         </section>
       ) : null}
       <aside className="sidebar">
@@ -4004,6 +4052,11 @@ async function loadDiff(projectId: string) {
             {activeProject && !isMobileViewport ? (
               <p className="chat-header-meta">
                 <span>Session {formatCompactSessionId(activeSessionId)}</span>
+                {contextUsage ? (
+                  <span className={`context-usage-badge context-usage-${contextUsage.color}`}>
+                    Context: {(contextUsage.used / 1024).toFixed(1)}K / {(contextUsage.limit / 1024).toFixed(0)}K ({contextUsage.percentage}%)
+                  </span>
+                ) : null}
                 {activeSession && activeSession.summary.files > 0 ? (
                   <span>
                     {activeSession.summary.files} files, +{activeSession.summary.additions}/-
@@ -4143,34 +4196,38 @@ async function loadDiff(projectId: string) {
                     <strong>Runtime</strong>
                     <span>Model and agent</span>
                   </div>
-                   <RuntimeControls
-                     models={runtimeModels}
-                     agents={runtimeAgents}
-                     sessions={projectSessions}
-                     activeSessionId={activeSessionId}
-                     selectedModel={selectedModel}
-                     selectedAgent={selectedAgent}
-                     globalDefaultModel={globalDefaultModel}
-                     saving={runtimeSaving || runtimeLoading}
-                     sessionLoading={sessionLoading}
-                     sessionSwitching={sessionSwitching}
-                     error={runtimeError}
-                     onModelChange={(value) => {
-                       void saveProjectRuntimeSelection({ model: value, agent: selectedAgent });
-                     }}
-                     onAgentChange={(value) => {
-                       void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
-                     }}
-                     onSessionChange={(value) => {
-                       void handleSwitchSession(value);
-                     }}
-                     onSessionCreate={() => {
-                       void handleCreateSession();
-                     }}
-                     onSessionDelete={() => {
-                       void handleDeleteSession();
-                     }}
-                   />
+                    <RuntimeControls
+                      models={runtimeModels}
+                      agents={runtimeAgents}
+                      sessions={projectSessions}
+                      activeSessionId={activeSessionId}
+                      selectedModel={selectedModel}
+                      selectedAgent={selectedAgent}
+                      globalDefaultModel={globalDefaultModel}
+                      saving={runtimeSaving || runtimeLoading}
+                      sessionLoading={sessionLoading}
+                      sessionSwitching={sessionSwitching}
+                      compacting={compacting}
+                      error={runtimeError}
+                      onModelChange={(value) => {
+                        void saveProjectRuntimeSelection({ model: value, agent: selectedAgent });
+                      }}
+                      onAgentChange={(value) => {
+                        void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
+                      }}
+                      onSessionChange={(value) => {
+                        void handleSwitchSession(value);
+                      }}
+                      onSessionCreate={() => {
+                        void handleCreateSession();
+                      }}
+                      onSessionDelete={() => {
+                        void handleDeleteSession();
+                      }}
+                      onCompact={() => {
+                        void handleCompactSession();
+                      }}
+                    />
                 </div>
 
                 <div className="toolbar-card settings-card">
@@ -4245,6 +4302,11 @@ async function loadDiff(projectId: string) {
             {hasActiveRun ? <span className="meta-pill run-active-pill">Run active</span> : null}
             <span className="meta-pill">{selectedAgent || "default agent"}</span>
             <span className="meta-pill">{selectedModel || "server model"}</span>
+            {contextUsage ? (
+              <span className={`meta-pill context-usage-pill context-usage-pill-${contextUsage.color}`}>
+                {(contextUsage.used / 1024).toFixed(1)}K/{(contextUsage.limit / 1024).toFixed(0)}K ({contextUsage.percentage}%)
+              </span>
+            ) : null}
           </div>
         ) : null}
 
@@ -4265,6 +4327,12 @@ async function loadDiff(projectId: string) {
               />
             ) : null}
           </div>
+          {compacting ? (
+            <div className="compaction-status-strip">
+              <span className="compaction-spinner" />
+              <span>Compacting session — summarizing conversation history...</span>
+            </div>
+          ) : null}
           {fixtureMode === "no-project" ? (
             <ChatStateCard
               title="Select a project to start chatting."
@@ -4359,7 +4427,19 @@ async function loadDiff(projectId: string) {
                       </div>
                     ) : null}
                     {entry.kind === "message" ? (
-                      <MessageBubble
+                      entry.message.mode === "compaction" ? (
+                        <div className="compaction-message-block">
+                          <div className="compaction-message-header">
+                            <span className="compaction-badge">Compaction</span>
+                          </div>
+                          {entry.message.text && (
+                            <div className="compaction-message-text">
+                              {entry.message.text}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <MessageBubble
                         message={entry.message}
                         canSpeak={Boolean(entry.message.text?.trim())}
                         speaking={speakingMessageId === entry.message.id}
@@ -4383,7 +4463,8 @@ async function loadDiff(projectId: string) {
                             [partKey]: nextOpen,
                           }));
                         }}
-                      />
+                       />
+                      )
                       ) : entry.kind === "activity" ? (
                         <AgentActivityCard
                           partItems={entry.partItems}
@@ -4620,34 +4701,38 @@ async function loadDiff(projectId: string) {
                    <strong>Runtime</strong>
                    <span>Model, agent, and session</span>
                  </div>
-                  <RuntimeControls
-                    models={runtimeModels}
-                    agents={runtimeAgents}
-                    sessions={projectSessions}
-                    activeSessionId={activeSessionId}
-                    selectedModel={selectedModel}
-                    selectedAgent={selectedAgent}
-                    globalDefaultModel={globalDefaultModel}
-                    saving={runtimeSaving || runtimeLoading}
-                    sessionLoading={sessionLoading}
-                    sessionSwitching={sessionSwitching}
-                    error={runtimeError}
-                    onModelChange={(value) => {
-                      void saveProjectRuntimeSelection({ model: value, agent: selectedAgent });
-                    }}
-                    onAgentChange={(value) => {
-                      void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
-                    }}
-                    onSessionChange={(value) => {
-                      void handleSwitchSession(value);
-                    }}
-                    onSessionCreate={() => {
-                      void handleCreateSession();
-                    }}
-                    onSessionDelete={() => {
-                      void handleDeleteSession();
-                    }}
-                  />
+                   <RuntimeControls
+                     models={runtimeModels}
+                     agents={runtimeAgents}
+                     sessions={projectSessions}
+                     activeSessionId={activeSessionId}
+                     selectedModel={selectedModel}
+                     selectedAgent={selectedAgent}
+                     globalDefaultModel={globalDefaultModel}
+                     saving={runtimeSaving || runtimeLoading}
+                     sessionLoading={sessionLoading}
+                     sessionSwitching={sessionSwitching}
+                     compacting={compacting}
+                     error={runtimeError}
+                     onModelChange={(value) => {
+                       void saveProjectRuntimeSelection({ model: value, agent: selectedAgent });
+                     }}
+                     onAgentChange={(value) => {
+                       void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
+                     }}
+                     onSessionChange={(value) => {
+                       void handleSwitchSession(value);
+                     }}
+                     onSessionCreate={() => {
+                       void handleCreateSession();
+                     }}
+                     onSessionDelete={() => {
+                       void handleDeleteSession();
+                     }}
+                     onCompact={() => {
+                       void handleCompactSession();
+                     }}
+                   />
                  </div>
                <div className="toolbar-card settings-card">
                  <div className="toolbar-card-head">

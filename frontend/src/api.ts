@@ -325,6 +325,18 @@ export async function deleteProjectSession(
   });
 }
 
+export async function compactSession(
+  projectId: string,
+  sessionId: string,
+  providerID: string,
+  modelID: string
+): Promise<{ ok: boolean; sessionId: string }> {
+  return request(`/api/projects/${projectId}/sessions/${encodeURIComponent(sessionId)}/summarize`, {
+    method: "POST",
+    body: JSON.stringify({ providerID, modelID }),
+  });
+}
+
 export async function fetchProjectDirectoryEntries(
   projectId: string,
   directory: string

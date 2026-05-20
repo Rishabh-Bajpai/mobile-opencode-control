@@ -109,6 +109,7 @@ def get_project_runtime(project_id: int):
             if not provider_id or not model_id:
                 continue
             value = f"{provider_id}/{model_id}"
+            limit_info = model.get("limit") if isinstance(model.get("limit"), dict) else {}
             models.append(
                 {
                     "id": value,
@@ -117,6 +118,7 @@ def get_project_runtime(project_id: int):
                     "modelId": model_id,
                     "name": str(model.get("name") or model_id).strip(),
                     "isDefault": default_map.get(provider_id) == model_id,
+                    "contextLimit": int(limit_info.get("context") or 0),
                 }
             )
 

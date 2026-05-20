@@ -270,6 +270,41 @@ class OpenCodeClient:
         data = response.json()
         return bool(data)
 
+    def compact_session(self, session_id: str, directory: str | None = None) -> bool:
+        params = {"directory": directory} if directory else None
+        response = requests.post(
+            f"{self.base_url}/session/{session_id}/compact",
+            params=params,
+            headers=self._headers(),
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.status_code == 204
+
+    def summarize_session(
+        self,
+        session_id: str,
+        provider_id: str,
+        model_id: str,
+        directory: str | None = None,
+        auto: bool = False,
+    ) -> bool:
+        params = {"directory": directory} if directory else None
+        payload = {
+            "providerID": provider_id,
+            "modelID": model_id,
+            "auto": auto,
+        }
+        response = requests.post(
+            f"{self.base_url}/session/{session_id}/summarize",
+            params=params,
+            json=payload,
+            headers=self._headers(),
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.status_code in (200, 204)
+
     def respond_permission(
         self,
         session_id: str,

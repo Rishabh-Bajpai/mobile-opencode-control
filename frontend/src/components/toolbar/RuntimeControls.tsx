@@ -14,12 +14,14 @@ export function RuntimeControls({
   saving,
   sessionLoading,
   sessionSwitching,
+  compacting,
   error,
   onModelChange,
   onAgentChange,
   onSessionChange,
   onSessionCreate,
   onSessionDelete,
+  onCompact,
 }: {
   models: RuntimeModelOption[];
   agents: RuntimeAgentOption[];
@@ -31,12 +33,14 @@ export function RuntimeControls({
   saving: boolean;
   sessionLoading: boolean;
   sessionSwitching: boolean;
+  compacting: boolean;
   error: string | null;
   onModelChange: (value: string | null) => void;
   onAgentChange: (value: string | null) => void;
   onSessionChange: (value: string) => void;
   onSessionCreate: () => void;
   onSessionDelete: () => void;
+  onCompact: () => void;
 }) {
   const sortedSessions = useMemo(
     () => sortSessionsForDisplay(sessions, activeSessionId),
@@ -131,6 +135,14 @@ export function RuntimeControls({
           )}
         </select>
         <div className="session-actions-row">
+          <button
+            type="button"
+            className="secondary-button session-compact-button"
+            onClick={onCompact}
+            disabled={sessionLoading || sessionSwitching || !activeSessionId || compacting}
+          >
+            {compacting ? "Compacting..." : "Compact"}
+          </button>
           <button
             type="button"
             className="secondary-button session-delete-button"

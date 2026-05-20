@@ -290,3 +290,77 @@ def abort_project_session(project_id: int):
         project.session_status = "error"
         db.session.commit()
         return jsonify({"error": f"Failed to abort session: {exc}"}), 502
+
+
+@api_bp.post("/projects/<int:project_id>/sessions/<session_id>/compact")
+@auth_required
+def compact_project_session(project_id: int, session_id: str):
+    project = Project.query.get(project_id)
+    if project is None:
+        return jsonify({"error": "Project not found"}), 404
+
+    requested_session_id = str(session_id or "").strip()
+    if not requested_session_id:
+        return jsonify({"error": "sessionId is required"}), 400
+
+    try:
+        resolved_session_id = _resolve_project_session(
+            project,
+            opencode_client,
+            session_id=requested_session_id,
+            create_if_missing=False,
+        )
+        ok = opencode_client.compact_session(resolved_session_id, directory=project.path)
+        project.last_activity_at = _utc_now()
+        db.session.commit()
+        return jsonify({"ok": ok, "sessionId": resolved_session_id})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Failed to compact session: {exc}"}), 502
+
+
+@api_bp.post("/projects/<int:project_id>/sessions/<session_id>/summarize")
+@auth_required
+def summarize_project_session(project_id: int, session_id: str):
+    project = Project.query.get(project_id)
+    if project is None:
+        return jsonify({"error": "Project not found"}), 404
+
+    requested_session_id = str(session_id or "").strip()
+    if not requested_session_id:
+        return jsonify({"error": "sessionId is required"}), 400
+
+    body = request.get_json(silent=True) or {}
+
+    try:
+        resolved_session_id = _resolve_project_session(
+            project,
+            opencode_client,
+            session_id=requested_session_id,
+            create_if_missing=False,
+        )
+        provider_data = opencode_client.list_config_providers()
+        default_map = provider_data.get("default") if isinstance(provider_data.get("default"), dict) else {}
+        provider_id = str(body.get("providerID") or "").strip()
+        model_id = str(body.get("modelID") or "").strip()
+        if not provider_id or not model_id:
+            default_model = default_map.get(list(default_map.keys())[0]) if default_map else None
+            if default_model and isinstance(default_model, str):
+                provider_id, _, model_id = default_model.partition("/")
+            else:
+                return jsonify({"error": "providerID and modelID are required"}), 400
+        ok = opencode_client.summarize_session(
+            resolved_session_id,
+            provider_id=provider_id,
+            model_id=model_id,
+            directory=project.path,
+            auto=body.get("auto", False),
+        )
+        project.last_activity_at = _utc_now()
+        db.session.commit()
+        return jsonify({"ok": ok, "sessionId": resolved_session_id})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Failed to summarize session: {exc}"}), 502

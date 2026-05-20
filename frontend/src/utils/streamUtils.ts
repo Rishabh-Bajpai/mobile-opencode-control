@@ -201,6 +201,7 @@ export type StreamEventClassification = {
   hasQuestionUpdate: boolean;
   hasApprovalUpdate: boolean;
   hasPartUpdate: boolean;
+  hasCompactionUpdate: boolean;
   isHeartbeat: boolean;
   rawEventType: string | null;
 };
@@ -211,6 +212,7 @@ export function classifyStreamEvent(data: string): StreamEventClassification {
     hasQuestionUpdate: false,
     hasApprovalUpdate: false,
     hasPartUpdate: false,
+    hasCompactionUpdate: false,
     isHeartbeat: false,
     rawEventType: null,
   };
@@ -232,6 +234,13 @@ export function classifyStreamEvent(data: string): StreamEventClassification {
         result.hasQuestionUpdate = true;
       } else if (eventType === "message.part.updated") {
         result.hasPartUpdate = true;
+      } else if (
+        eventType === "session.compacted" ||
+        eventType === "session.next.compaction.started" ||
+        eventType === "session.next.compaction.delta" ||
+        eventType === "session.next.compaction.ended"
+      ) {
+        result.hasCompactionUpdate = true;
       } else if (
         eventType === "text.delta" ||
         eventType === "text.ended" ||
@@ -256,6 +265,11 @@ export function classifyStreamEvent(data: string): StreamEventClassification {
         result.hasApprovalUpdate = true;
       } else if (directType.startsWith("question.")) {
         result.hasQuestionUpdate = true;
+      } else if (
+        directType === "session.compacted" ||
+        directType.startsWith("session.next.compaction.")
+      ) {
+        result.hasCompactionUpdate = true;
       } else if (
         directType.startsWith("text.") ||
         directType.startsWith("tool.") ||

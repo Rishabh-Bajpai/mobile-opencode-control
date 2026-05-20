@@ -185,6 +185,8 @@ def _task_metrics(task: ScheduledTask) -> dict:
 LOCAL_SESSION_COMMANDS = {
     "stop": "Stop the current agent execution for this project session.",
     "abort": "Alias for /stop.",
+    "compact": "Compact the session by summarizing the conversation history.",
+    "summarize": "Alias for /compact.",
 }
 
 def _timeline_event_to_dict(event: TimelineEvent) -> dict:
@@ -550,6 +552,17 @@ def _message_to_dict(message: dict) -> dict:
         or _datetime_from_epoch_ms(message_time.get("created"))
     )
     text = _extract_text(parts)
+    tokens = info.get("tokens") if isinstance(info.get("tokens"), dict) else None
+    token_data = None
+    if tokens:
+        cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+        token_data = {
+            "input": int(tokens.get("input") or 0),
+            "output": int(tokens.get("output") or 0),
+            "reasoning": int(tokens.get("reasoning") or 0),
+            "cacheRead": int(cache.get("read") or 0),
+            "cacheWrite": int(cache.get("write") or 0),
+        }
     return {
         "id": str((info or {}).get("id") or ""),
         "role": (info or {}).get("role") or "assistant",
@@ -558,6 +571,9 @@ def _message_to_dict(message: dict) -> dict:
         or _utc_now().isoformat(),
         "text": text,
         "parts": parts,
+        "tokens": token_data,
+        "mode": str((info or {}).get("mode") or ""),
+        "summary": bool((info or {}).get("summary")),
     }
 
 def _session_to_dict(

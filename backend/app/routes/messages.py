@@ -155,13 +155,32 @@ def run_project_command(project_id: int):
             session_id = _ensure_project_session(project, opencode_client)
 
         if command in LOCAL_SESSION_COMMANDS:
-            opencode_client.abort_session(session_id, directory=project.path)
-            normalized = _local_message(
-                "Stopped current agent execution for this session."
-            )
-            project.last_message_preview = normalized.get("text") or "/stop"
+            if command in ("compact", "summarize"):
+                provider_data = opencode_client.list_config_providers()
+                default_map = provider_data.get("default") if isinstance(provider_data.get("default"), dict) else {}
+                default_model = default_map.get(list(default_map.keys())[0]) if default_map else None
+                if default_model and isinstance(default_model, str):
+                    provider_id, _, model_id = default_model.partition("/")
+                    opencode_client.summarize_session(
+                        session_id,
+                        provider_id=provider_id,
+                        model_id=model_id,
+                        directory=project.path,
+                    )
+                else:
+                    opencode_client.compact_session(session_id, directory=project.path)
+                normalized = _local_message(
+                    "Session compaction started. The conversation will be summarized."
+                )
+                project.last_message_preview = normalized.get("text") or "/compact"
+            else:
+                opencode_client.abort_session(session_id, directory=project.path)
+                normalized = _local_message(
+                    "Stopped current agent execution for this session."
+                )
+                project.last_message_preview = normalized.get("text") or "/stop"
+                project.session_status = "idle"
             project.last_activity_at = _utc_now()
-            project.session_status = "idle"
             db.session.commit()
             return jsonify(
                 {"sessionId": session_id, "message": normalized, "localOnly": True}

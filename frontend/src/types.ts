@@ -44,6 +44,15 @@ export interface ChatMessage {
   createdAt: string;
   text: string;
   parts: Array<Record<string, unknown>>;
+  tokens?: {
+    input: number;
+    output: number;
+    reasoning: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
+  mode?: string;
+  summary?: boolean;
 }
 
 export interface TimelineEvent {
@@ -66,6 +75,7 @@ export interface RuntimeModelOption {
   modelId: string;
   name: string;
   isDefault: boolean;
+  contextLimit: number;
 }
 
 export interface RuntimeAgentOption {
