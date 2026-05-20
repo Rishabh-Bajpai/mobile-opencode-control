@@ -9,7 +9,10 @@ git_bp = Blueprint('git_bp', __name__)
 
 def _current_branch_name(repo: Repo) -> str:
     if not repo.head.is_valid():
-        return "No commits yet"
+        try:
+            return repo.active_branch.name
+        except Exception:
+            return ""
     if repo.head.is_detached:
         return f"Detached HEAD @ {repo.head.commit.hexsha[:7]}"
     return repo.active_branch.name
@@ -150,7 +153,7 @@ def git_push(project_id: int):
     try:
         remote = _get_named_remote(repo, remote_name)
         if remote is None:
-            return jsonify({"error": f"Remote '{remote_name}' is not configured"}), 400
+            return jsonify({"error": f"Remote '{remote_name}' is not configured. Add it in the Origin remote section below."}), 400
         if not repo.head.is_valid():
             return jsonify({"error": "Create at least one commit before pushing"}), 400
         if repo.head.is_detached:

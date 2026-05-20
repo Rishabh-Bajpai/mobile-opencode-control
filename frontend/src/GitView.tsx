@@ -40,6 +40,16 @@ function formatSyncLabel(status: GitStatusResponse): string {
   return parts.join(" · ");
 }
 
+function getSyncTone(status: GitStatusResponse): "warn" | "info" | "neutral" {
+  if (status.behind > 0) {
+    return "warn";
+  }
+  if (status.ahead > 0) {
+    return "info";
+  }
+  return "neutral";
+}
+
 export default function GitView({ projectId }: GitViewProps) {
   const [status, setStatus] = useState<GitStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,7 +74,12 @@ export default function GitView({ projectId }: GitViewProps) {
       setStatus(data);
 
       const originRemote = data.remoteDetails.find((remote) => remote.name === "origin") ?? data.remoteDetails[0];
-      setRemoteUrl(originRemote?.url ?? "");
+      setRemoteUrl((currentRemoteUrl) => {
+        if (!originRemote) {
+          return "";
+        }
+        return originRemote.url ?? currentRemoteUrl;
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load git status";
       setError(message);
@@ -132,8 +147,12 @@ export default function GitView({ projectId }: GitViewProps) {
   const canSync = Boolean(status?.hasCommits && hasRemote);
   const canCommit = Boolean(commitMessage.trim()) && Boolean(status && !status.isClean);
   const syncLabel = status ? formatSyncLabel(status) : "";
-  const syncTone =
-    status && status.behind > 0 ? "warn" : status && status.ahead > 0 ? "info" : "neutral";
+  const syncTone = status ? getSyncTone(status) : "neutral";
+  const primaryRemoteDetail = !status
+    ? ""
+    : status.remoteDetails[0]
+    ? status.remoteDetails[0].url ?? "Remote is configured, but no URL is currently set."
+    : "Add an origin URL to enable pull and push.";
 
   const handleInit = async () => {
     await runOperation("init", () => apiGitInit(projectId), "Repository initialized.");
@@ -293,9 +312,7 @@ export default function GitView({ projectId }: GitViewProps) {
               <strong>Remote</strong>
               <span>{hasRemote ? status.remoteDetails.map((remote) => remote.name).join(", ") : "No remote configured"}</span>
             </div>
-            <small className="git-summary-detail">
-              {status.remoteDetails[0]?.url ?? "Add an origin URL to enable pull and push."}
-            </small>
+            <small className="git-summary-detail">{primaryRemoteDetail}</small>
           </article>
 
           <article className="toolbar-card git-summary-card">
