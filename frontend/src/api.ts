@@ -430,3 +430,157 @@ export async function previewScheduledTask(
     body: JSON.stringify(input),
   });
 }
+
+export interface GitStatusResponse {
+  untracked: string[];
+  changed: string[];
+  staged: string[];
+  isClean: boolean;
+  branch: string;
+  remotes: string[];
+  remoteDetails: Array<{
+    name: string;
+    url: string | null;
+  }>;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  hasCommits: boolean;
+  lastCommit: {
+    shortSha: string;
+    message: string;
+  } | null;
+  notGit?: boolean;
+}
+
+export interface GitCommitEntry {
+  sha: string;
+  shortSha: string;
+  message: string;
+  authorName: string;
+  authorEmail: string;
+  authoredAt: string | null;
+  parents: number;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  refs: string[];
+}
+
+export interface GitBranchSummary {
+  name: string;
+  isCurrent?: boolean;
+  upstream?: string | null;
+  trackedBy?: string | null;
+  remoteName?: string;
+  branchName?: string;
+  lastCommit: GitCommitEntry | null;
+}
+
+export interface GitBranchesResponse {
+  currentBranch: string;
+  detached: boolean;
+  local: GitBranchSummary[];
+  remote: GitBranchSummary[];
+}
+
+export interface GitHistoryResponse {
+  commits: GitCommitEntry[];
+  hasMore: boolean;
+}
+
+export function apiGitInit(projectId: string) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/init`, { method: "POST" });
+}
+
+export function apiGitStatus(projectId: string) {
+  return request<GitStatusResponse>(`/api/projects/${projectId}/git/status`);
+}
+
+export function apiGitCommit(projectId: string, message: string) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/commit`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
+export function apiGitCommitWithOptions(projectId: string, input: { message: string; stageAll?: boolean }) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/commit`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function apiGitStageAll(projectId: string) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/stage`, {
+    method: "POST",
+  });
+}
+
+export function apiGitBranches(projectId: string) {
+  return request<GitBranchesResponse>(`/api/projects/${projectId}/git/branches`);
+}
+
+export function apiGitCheckoutBranch(projectId: string, name: string) {
+  return request<{ success: boolean; currentBranch: string }>(`/api/projects/${projectId}/git/branches/checkout`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function apiGitCreateBranch(
+  projectId: string,
+  input: { name: string; startPoint?: string; checkout?: boolean }
+) {
+  return request<{ success: boolean; branch: string }>(`/api/projects/${projectId}/git/branches/create`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function apiGitTrackRemoteBranch(
+  projectId: string,
+  input: { remote: string; name: string; localName?: string }
+) {
+  return request<{ success: boolean; branch: string; upstream: string }>(
+    `/api/projects/${projectId}/git/branches/track`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    }
+  );
+}
+
+export function apiGitHistory(projectId: string, input?: { limit?: number; skip?: number }) {
+  const params = new URLSearchParams();
+  if (typeof input?.limit === "number") {
+    params.set("limit", String(input.limit));
+  }
+  if (typeof input?.skip === "number") {
+    params.set("skip", String(input.skip));
+  }
+  const query = params.toString();
+  const path = query ? `/api/projects/${projectId}/git/history?${query}` : `/api/projects/${projectId}/git/history`;
+  return request<GitHistoryResponse>(path);
+}
+
+export function apiGitPush(projectId: string, remote: string) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/push`, {
+    method: "POST",
+    body: JSON.stringify({ remote }),
+  });
+}
+
+export function apiGitPull(projectId: string, remote: string) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/pull`, {
+    method: "POST",
+    body: JSON.stringify({ remote }),
+  });
+}
+
+export function apiGitRemote(projectId: string, name: string, url: string) {
+  return request<{ success: boolean }>(`/api/projects/${projectId}/git/remote`, {
+    method: "POST",
+    body: JSON.stringify({ name, url }),
+  });
+}
