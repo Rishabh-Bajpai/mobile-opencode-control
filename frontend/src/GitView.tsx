@@ -23,7 +23,7 @@ type ChangeGroup = {
 
 function formatSyncLabel(status: GitStatusResponse): string {
   if (!status.upstream) {
-    return status.remotes.length > 0 ? "Remote configured" : "No upstream";
+    return status.remotes.length > 0 ? "Not tracking remote" : "No upstream";
   }
 
   if (status.ahead === 0 && status.behind === 0) {

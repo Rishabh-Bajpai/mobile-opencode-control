@@ -60,12 +60,15 @@ def _tracking_details(repo: Repo):
     if tracking_branch is None:
         return None, 0, 0
 
+    counts = repo.git.rev_list(
+        "--left-right", "--count", f"{repo.active_branch.path}...{tracking_branch.path}"
+    ).strip().split()
+    if len(counts) != 2:
+        return tracking_branch.name, 0, 0
+    ahead_str, behind_str = counts
     try:
-        ahead_str, behind_str = repo.git.rev_list(
-            "--left-right", "--count", f"{repo.active_branch.path}...{tracking_branch.path}"
-        ).strip().split()
         return tracking_branch.name, int(ahead_str), int(behind_str)
-    except Exception:
+    except ValueError:
         return tracking_branch.name, 0, 0
 
 
