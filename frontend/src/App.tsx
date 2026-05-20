@@ -4427,18 +4427,7 @@ async function loadDiff(projectId: string) {
                       </div>
                     ) : null}
                     {entry.kind === "message" ? (
-                      entry.message.mode === "compaction" ? (
-                        <div className="compaction-message-block">
-                          <div className="compaction-message-header">
-                            <span className="compaction-badge">Compaction</span>
-                          </div>
-                          {entry.message.text && (
-                            <div className="compaction-message-text">
-                              {entry.message.text}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
+                      <div className={entry.message.mode === "compaction" ? "compaction-message" : ""}>
                         <MessageBubble
                         message={entry.message}
                         canSpeak={Boolean(entry.message.text?.trim())}
@@ -4463,8 +4452,8 @@ async function loadDiff(projectId: string) {
                             [partKey]: nextOpen,
                           }));
                         }}
-                       />
-                      )
+                      />
+                      </div>
                       ) : entry.kind === "activity" ? (
                         <AgentActivityCard
                           partItems={entry.partItems}

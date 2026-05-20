@@ -904,37 +904,29 @@ input {
   color: #f0a090;
 }
 
-.compaction-message-block {
-  margin: 0.75rem 0;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border-active);
-  border-radius: 0.5rem;
-  background: var(--bg-panel);
+.compaction-message {
+  position: relative;
 }
 
-.compaction-message-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
+.compaction-message .bubble {
+  border-left: 3px solid rgba(100, 149, 237, 0.5);
+  background: rgba(30, 50, 80, 0.5);
 }
 
-.compaction-badge {
-  display: inline-block;
-  padding: 0.15rem 0.5rem;
-  border-radius: 0.25rem;
-  font-size: 0.7rem;
+.compaction-message .bubble::before {
+  content: "Compaction";
+  display: block;
+  font-size: 0.65rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  background: rgba(100, 149, 237, 0.2);
   color: #8ab4f8;
+  margin-bottom: 0.35rem;
 }
 
-.compaction-message-text {
-  font-size: 0.85rem;
+.compaction-message .bubble .rich-message-text {
+  font-size: 0.82rem;
   line-height: 1.5;
-  color: var(--text-main);
   white-space: pre-wrap;
 }
 
