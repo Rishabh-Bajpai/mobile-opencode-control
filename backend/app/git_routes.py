@@ -52,7 +52,7 @@ def _build_untracked_patch(repo: Repo, relative_path: str) -> str | None:
         if file_size > MAX_UNTRACKED_DIFF_BYTES:
             return (
                 f"File too large to preview ({file_size} bytes). "
-                f"Showing diffs is limited to files up to {MAX_UNTRACKED_DIFF_BYTES} bytes."
+                f"Diff previews are limited to files up to {MAX_UNTRACKED_DIFF_BYTES} bytes."
             )
 
         content = path.read_text(errors="replace")

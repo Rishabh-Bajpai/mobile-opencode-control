@@ -37,7 +37,7 @@ def _current_utc_now():
         legacy_utc_now = getattr(routes_module, "_utc_now", None)
         if callable(legacy_utc_now):
             return legacy_utc_now()
-    except Exception:
+    except (ImportError, AttributeError):
         pass
     return _utc_now()
 
