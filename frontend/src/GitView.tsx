@@ -117,7 +117,9 @@ export default function GitView({ projectId }: GitViewProps) {
         </div>
       </div>
 
-      <div className="git-section card" style={{ padding: '16px', background: 'var(--bg-layer-1)', borderRadius: '8px' }}>
+      <div className="git-section card" style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '8px' }}>
+      <div className="git-section card" style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '8px' }}>
+      <div className="git-section card" style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '8px' }}>
         <h3>Commit Changes</h3>
         <form onSubmit={handleCommit} style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
           <input
@@ -132,7 +134,6 @@ export default function GitView({ projectId }: GitViewProps) {
         </form>
       </div>
 
-      <div className="git-section card" style={{ padding: '16px', background: 'var(--bg-layer-1)', borderRadius: '8px' }}>
          <h3>Changes</h3>
          {status.isClean ? (
              <p>Working tree is clean.</p>
@@ -166,7 +167,6 @@ export default function GitView({ projectId }: GitViewProps) {
          )}
       </div>
 
-      <div className="git-section card" style={{ padding: '16px', background: 'var(--bg-layer-1)', borderRadius: '8px' }}>
         <h3>Remote</h3>
         {status.remotes.length > 0 ? (
           <p>Configured remotes: {status.remotes.join(", ")}</p>
