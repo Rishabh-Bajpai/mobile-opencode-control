@@ -1,5 +1,6 @@
 import React, { FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, UIEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import GitView from "./GitView";
 import {
   abortSession,
   createProjectSession,
@@ -2059,12 +2060,33 @@ function toIsoFromLocalDateAndTime(date: string, time: string) {
 }
 
 /**
+ * Extracts a string part from `Intl.DateTimeFormat.formatToParts()` output.
+ * Returns the empty string when the part is not present.
+ */
+function getIntlPart(parts: Intl.DateTimeFormatPart[], type: string): string {
+  return parts.find((p) => p.type === type)?.value ?? "";
+}
+
+/**
+ * Like `getIntlPart` but parses the result as a base-10 integer.
+ * Returns 0 when the part is missing.
+ */
+function getIntlPartInt(parts: Intl.DateTimeFormatPart[], type: string): number {
+  return parseInt(getIntlPart(parts, type) || "0", 10);
+}
+
+/**
  * Converts a date + time string (as entered by the user) into an ISO UTC string,
  * interpreting the wall-clock time as being in `timezone` rather than the browser's
  * local timezone.
+ *
+ * @param dateStr - Date in "YYYY-MM-DD" format.
+ * @param timeStr - Time in "HH:mm" format (as produced by `<input type="time">`).
+ * @param timezone - IANA timezone identifier (e.g. "America/New_York").
  */
 function toIsoInTimezone(dateStr: string, timeStr: string, timezone: string): string | null {
   if (!dateStr) return null;
+  // Append seconds to satisfy the ISO 8601 full-time requirement used below.
   const timeString = (timeStr || "00:00") + ":00";
   try {
     // Treat the input as UTC to get a starting reference point.
@@ -2083,12 +2105,21 @@ function toIsoInTimezone(dateStr: string, timeStr: string, timezone: string): st
       hour12: false,
     });
     const parts = fmt.formatToParts(asUtc);
-    const get = (type: string) => parseInt(parts.find((p) => p.type === type)?.value ?? "0");
-    let tzHour = get("hour");
+    let tzHour = getIntlPartInt(parts, "hour");
+    // Intl.DateTimeFormat with hour12:false can return 24 instead of 0 at midnight.
     if (tzHour === 24) tzHour = 0;
 
     // Re-express that wall-clock reading as a UTC timestamp.
-    const tzWallAsUtc = new Date(Date.UTC(get("year"), get("month") - 1, get("day"), tzHour, get("minute"), get("second")));
+    const tzWallAsUtc = new Date(
+      Date.UTC(
+        getIntlPartInt(parts, "year"),
+        getIntlPartInt(parts, "month") - 1,
+        getIntlPartInt(parts, "day"),
+        tzHour,
+        getIntlPartInt(parts, "minute"),
+        getIntlPartInt(parts, "second"),
+      ),
+    );
 
     // The timezone's offset at this instant, then shift to get the true UTC time.
     const offsetMs = asUtc.getTime() - tzWallAsUtc.getTime();
@@ -2117,14 +2148,14 @@ function toDateInputPartsInTimezone(value: string | null, timezone: string): { d
       hour12: false,
     });
     const parts = fmt.formatToParts(date);
-    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-    let hour = get("hour");
+    let hour = getIntlPart(parts, "hour");
+    // Intl.DateTimeFormat with hour12:false can return "24" instead of "00" at midnight.
     if (hour === "24") hour = "00";
-    const year = get("year");
+    const year = getIntlPart(parts, "year");
     if (!year) return { date: "", time: "" };
     return {
-      date: `${year}-${get("month")}-${get("day")}`,
-      time: `${hour}:${get("minute")}`,
+      date: `${year}-${getIntlPart(parts, "month")}-${getIntlPart(parts, "day")}`,
+      time: `${hour}:${getIntlPart(parts, "minute")}`,
     };
   } catch {
     return { date: "", time: "" };
@@ -3489,7 +3520,7 @@ export function App() {
   });
   const [desktopProjectControlsCollapsed, setDesktopProjectControlsCollapsed] = useState(true);
   const [desktopChatToolbarCollapsed, setDesktopChatToolbarCollapsed] = useState(true);
-  const [activeMainView, setActiveMainView] = useState<"chat" | "files" | "tasks">("chat");
+  const [activeMainView, setActiveMainView] = useState<"chat" | "files" | "tasks" | "git">("chat");
   const [mobileProjectListOpen, setMobileProjectListOpen] = useState(false);
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileNewProjectOpen, setMobileNewProjectOpen] = useState(false);
@@ -5001,6 +5032,7 @@ export function App() {
     setTaskSaving(true);
     setTaskError(null);
     try {
+      const [onceDatePart, onceTimePart] = taskOnceInput.split("T");
       const response = await saveScheduledTask(activeProjectId, {
         id: scheduledTask?.id,
         name: taskNameInput,
@@ -5008,8 +5040,8 @@ export function App() {
         instruction: taskInstructionInput,
         taskType: taskTypeInput,
         cronExpression: taskCronInput,
-        onceRunAt: taskOnceInput
-          ? toIsoInTimezone(taskOnceInput.split("T")[0], taskOnceInput.split("T")[1] ?? "00:00", taskTimezoneInput)
+        onceRunAt: onceDatePart
+          ? toIsoInTimezone(onceDatePart, onceTimePart ?? "00:00", taskTimezoneInput)
           : null,
         intervalMinutes: taskIntervalInput,
         startsAt: toIsoInTimezone(taskStartsDateInput, taskStartsTimeInput, taskTimezoneInput),
@@ -5098,11 +5130,12 @@ export function App() {
     }
     setTaskError(null);
     try {
+      const [onceDatePart, onceTimePart] = taskOnceInput.split("T");
       const result = await previewScheduledTask(activeProjectId, {
         taskType: taskTypeInput,
         cronExpression: taskCronInput,
-        onceRunAt: taskOnceInput
-          ? toIsoInTimezone(taskOnceInput.split("T")[0], taskOnceInput.split("T")[1] ?? "00:00", taskTimezoneInput)
+        onceRunAt: onceDatePart
+          ? toIsoInTimezone(onceDatePart, onceTimePart ?? "00:00", taskTimezoneInput)
           : null,
         intervalMinutes: taskIntervalInput,
         timezone: taskTimezoneInput,
@@ -6801,6 +6834,15 @@ export function App() {
                 >
                   Tasks
                 </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeMainView === "git"}
+                  className={activeMainView === "git" ? "active" : ""}
+                  onClick={() => setActiveMainView("git")}
+                >
+                  Git
+                </button>
               </div>
             ) : null}
             {!isMobileViewport ? (
@@ -6855,6 +6897,15 @@ export function App() {
                 onClick={() => setActiveMainView("tasks")}
               >
                 Tasks
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeMainView === "git"}
+                className={activeMainView === "git" ? "active" : ""}
+                onClick={() => setActiveMainView("git")}
+              >
+                Git
               </button>
             </div>
           ) : null}
@@ -7235,6 +7286,17 @@ export function App() {
               <ChatStateCard
                 title="No project selected"
                 detail="Pick a project to manage its scheduled tasks."
+              />
+            )}
+          </section>
+        ) : activeMainView === "git" ? (
+          <section className="git-main-view">
+            {activeProject ? (
+              <GitView projectId={activeProject.id} mobile={isMobileViewport} />
+            ) : (
+              <ChatStateCard
+                title="No project selected"
+                detail="Pick a project to manage branches, changes, and commit history."
               />
             )}
           </section>
