@@ -1,29 +1,13 @@
+# ruff: noqa: F405
 import json
-import os
-import sys
-import mimetypes
-import socket
-import tempfile
-import zipfile
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import timedelta
 
-import requests
-from flask import (
-    Response,
-    after_this_request,
-    jsonify,
-    request,
-    send_file,
-    stream_with_context,
-)
-from sqlalchemy import or_
+from flask import jsonify, request
 
 from ..auth import auth_required
 from ..db import db
-from ..models import AppSetting, Project, ScheduledTask, ScheduledTaskRun, TimelineEvent
-from ..scheduler import TASK_TYPES, calculate_next_run, next_cron_runs, parse_cron_expression
-from ..voice import VoiceError
+from ..models import Project, ScheduledTask, ScheduledTaskRun
+from ..scheduler import calculate_next_run, next_cron_runs
 from . import api_bp
 from .helpers import *  # noqa: F401,F403
 
@@ -47,9 +31,6 @@ def configure(app_instance, settings_instance, opencode_client_instance, schedul
 
 
 def _current_utc_now():
-    routes_module = sys.modules.get("app.routes") or sys.modules.get("backend.app.routes")
-    if routes_module is not None and hasattr(routes_module, "_utc_now"):
-        return routes_module._utc_now()
     return _utc_now()
 
 

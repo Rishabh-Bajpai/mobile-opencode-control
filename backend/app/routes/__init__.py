@@ -11,7 +11,6 @@ from . import projects  # noqa: F401,E402
 from . import runtime  # noqa: F401,E402
 from . import scheduler_routes  # noqa: F401,E402
 from . import sessions  # noqa: F401,E402
-from . import settings  # noqa: F401,E402
 from . import stt  # noqa: F401,E402
 from . import tasks  # noqa: F401,E402
 
@@ -26,7 +25,6 @@ _ROUTE_MODULES = (
     files,
     tasks,
     messages,
-    settings,
 )
 
 
