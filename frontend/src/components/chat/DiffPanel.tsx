@@ -27,6 +27,27 @@ function renderPatch(patch: string) {
   );
 }
 
+function displaySessionPath(entry: SessionDiffEntry): string {
+  const record = entry as Record<string, unknown>;
+  const candidates = ["path", "filePath", "relativePath", "file", "name", "filename"];
+  for (const key of candidates) {
+    const val = record[key];
+    if (typeof val === "string" && val.length > 0) return val;
+  }
+  const keys = Object.keys(record).filter((k) => typeof record[k] === "string");
+  if (keys.length > 0) {
+    const val = String(record[keys[0]]);
+    return val.length > 80 ? val.slice(0, 80) + "…" : val;
+  }
+  const summaryParts: string[] = [];
+  for (const [key, val] of Object.entries(record)) {
+    if (typeof val === "number") {
+      summaryParts.push(`${key}: ${val}`);
+    }
+  }
+  return summaryParts.length > 0 ? summaryParts.join(" · ") : "Unknown entry";
+}
+
 export function DiffPanel({
   sessionDiff,
   gitDiff,
@@ -68,8 +89,8 @@ export function DiffPanel({
                 <div key={i} className="diff-file-entry">
                   <div className="diff-file-header">
                     <span className="diff-file-path">
-                    {(entry as Record<string, unknown>).path ?? `file-${i}`}
-                  </span>
+                      {displaySessionPath(entry)}
+                    </span>
                   </div>
                 </div>
               ))}

@@ -1942,6 +1942,10 @@ input {
   background: rgba(16, 29, 43, 0.56);
 }
 
+.part-reasoning .message-rich-text {
+  padding: 0.5rem 0.62rem;
+}
+
 .part-step-start,
 .part-step-finish {
   border-color: rgba(95, 168, 255, 0.26);
@@ -2148,6 +2152,131 @@ input {
 
 .file-link:hover {
   background: rgba(95, 168, 255, 0.1);
+}
+
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.15);
+  font-size: 0.76rem;
+}
+
+.todo-status {
+  font-size: 0.8rem;
+  width: 1rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.todo-status-completed {
+  color: #2ecc71;
+}
+
+.todo-status-in_progress {
+  color: #5fa8ff;
+}
+
+.todo-status-pending {
+  color: #95a6b8;
+}
+
+.todo-content {
+  flex: 1;
+  color: #c8d6e3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-priority {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.todo-priority-high {
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+}
+
+.todo-priority-medium {
+  background: rgba(255, 178, 59, 0.2);
+  color: #ffb23b;
+}
+
+.todo-priority-low {
+  background: rgba(149, 166, 184, 0.2);
+  color: #95a6b8;
+}
+
+.step-card {
+  padding: 0.5rem;
+  border-top: 1px solid rgba(149, 166, 184, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.step-info {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+
+.step-label {
+  color: var(--text-muted);
+  font-weight: 600;
+  min-width: 4.5rem;
+}
+
+.step-value {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.74rem;
+  color: #c8d6e3;
+  word-break: break-all;
+}
+
+.step-token-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: 0.2rem 0.5rem;
+  margin-top: 0.15rem;
+}
+
+.step-token-item {
+  display: flex;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+}
+
+.step-token-key {
+  color: var(--text-muted);
+}
+
+.step-token-val {
+  color: #c8d6e3;
+  font-family: "SF Mono", "Fira Code", monospace;
+}
+
+.step-placeholder {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin: 0;
 }
 
 .fallback-card {
