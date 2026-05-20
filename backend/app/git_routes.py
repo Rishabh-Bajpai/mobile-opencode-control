@@ -46,6 +46,12 @@ def _diff_name_only(repo: Repo, *args: str) -> list[str]:
 
 
 def _build_untracked_patch(repo: Repo, relative_path: str) -> str | None:
+    """Build a preview patch for an untracked file.
+
+    Returns a unified-diff-style string for text files within the preview size
+    limit, a human-readable message when the file exceeds that limit, or None if
+    the file cannot be read from disk.
+    """
     path = Path(repo.working_dir, relative_path)
     try:
         file_size = path.stat().st_size

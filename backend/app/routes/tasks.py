@@ -30,15 +30,23 @@ def configure(app_instance, settings_instance, opencode_client_instance, schedul
     voice_runtime = voice_runtime_instance
 
 
-def _current_utc_now():
+def _load_legacy_routes_module():
     try:
         from .. import routes as routes_module
 
-        legacy_utc_now = getattr(routes_module, "_utc_now", None)
+        return routes_module
+    except ImportError:
+        return None
+
+
+_LEGACY_ROUTES_MODULE = _load_legacy_routes_module()
+
+
+def _current_utc_now():
+    if _LEGACY_ROUTES_MODULE is not None:
+        legacy_utc_now = getattr(_LEGACY_ROUTES_MODULE, "_utc_now", None)
         if callable(legacy_utc_now):
             return legacy_utc_now()
-    except (ImportError, AttributeError):
-        pass
     return _utc_now()
 
 

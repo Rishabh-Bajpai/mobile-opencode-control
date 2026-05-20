@@ -29,12 +29,12 @@ export function QuestionCard({
         {(question.questions ?? []).map((info, questionIndex) => {
           const selectedValues = draft.optionSelections[questionIndex] ?? [];
           const customValue = draft.customValues[questionIndex] ?? "";
-          const questionKey = JSON.stringify({
-            id: question.id,
-            header: info.header,
-            question: info.question,
-            options: info.options.map((option) => option.label),
-          });
+          const questionKey = [
+            question.id,
+            info.header,
+            info.question,
+            ...info.options.map((option) => option.label),
+          ].map((value) => encodeURIComponent(value)).join(":");
           return (
             <div key={questionKey} className="question-block">
               <div className="question-block-head">
