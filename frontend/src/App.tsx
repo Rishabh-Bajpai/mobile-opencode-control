@@ -7674,30 +7674,6 @@ export function App() {
               ))}
             </div>
           ) : null}
-          {activeProject && fixtureMode !== "no-project" && hasBlockingQuestions ? (
-            <div className="approval-list">
-              {pendingQuestions.map((question) => (
-                <QuestionCard
-                  key={question.id}
-                  question={question}
-                  draft={questionDrafts[question.id] ?? buildInitialQuestionDraft(question)}
-                  responding={respondingQuestionId === question.id}
-                  onToggleOption={(questionIndex, optionLabel, multiple) => {
-                    handleQuestionOptionToggle(question.id, questionIndex, optionLabel, multiple);
-                  }}
-                  onCustomValueChange={(questionIndex, value) => {
-                    handleQuestionCustomValueChange(question.id, questionIndex, value);
-                  }}
-                  onSubmit={() => {
-                    void handleReplyQuestion(question);
-                  }}
-                  onReject={() => {
-                    void handleRejectQuestion(question);
-                  }}
-                />
-              ))}
-            </div>
-          ) : null}
           {activeProject && renderedTimelineEntries.length > 0 ? (
             <div className="messages-list">
               {renderedTimelineEntries.map((entry, index) => {
@@ -7818,6 +7794,30 @@ export function App() {
             >
               ↓
             </button>
+          ) : null}
+          {activeProject && fixtureMode !== "no-project" && hasBlockingQuestions ? (
+            <div className="approval-list">
+              {pendingQuestions.map((question) => (
+                <QuestionCard
+                  key={question.id}
+                  question={question}
+                  draft={questionDrafts[question.id] ?? buildInitialQuestionDraft(question)}
+                  responding={respondingQuestionId === question.id}
+                  onToggleOption={(questionIndex, optionLabel, multiple) => {
+                    handleQuestionOptionToggle(question.id, questionIndex, optionLabel, multiple);
+                  }}
+                  onCustomValueChange={(questionIndex, value) => {
+                    handleQuestionCustomValueChange(question.id, questionIndex, value);
+                  }}
+                  onSubmit={() => {
+                    void handleReplyQuestion(question);
+                  }}
+                  onReject={() => {
+                    void handleRejectQuestion(question);
+                  }}
+                />
+              ))}
+            </div>
           ) : null}
         </section>
         ) : activeMainView === "tasks" ? (
