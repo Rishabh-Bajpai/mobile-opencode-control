@@ -5,6 +5,20 @@
 
 ---
 
+## Implementation Status Summary
+
+| Issue | Status | Remaining Work |
+|-------|--------|----------------|
+| #1 Questions | ✅ **COMPLETE** | None |
+| #5 Session bug | ⚡ **PARTIAL** | `_resolve_project_session` only re-raises when explicit `session_id` provided, not on `last_session_id` fallback |
+| #4 File tree | ⚡ **PARTIAL** | Auto-collapse `useEffect` modified but not removed; handles the race case but could be cleaner |
+| #3 Notifications | ⚡ **PARTIAL** | Functionally works; route path differs from plan; possible bugs in browser/ntfy/both delivery logic |
+| #2 Project ordering | ❌ **MISSING** | Backend updates `last_activity_at` on select; frontend `useMemo` sort (active project first) not done |
+| #6 Multi-session | ❌ **NOT STARTED** | Phase 1 (session tab bar) not implemented; still uses dropdown |
+| #7 Streaming | ❌ **NOT STARTED** | No `text.delta`/`text.ended` parsing, no incremental updates, no heartbeat handling |
+
+---
+
 ## Original Issues (from user)
 
 1. **Missing Question Features** — The app lacks OpenCode's question/input prompts, where the AI asks the user for input during conversations.
@@ -19,442 +33,274 @@
 
 ## Priority & Execution Order
 
-| Priority | Issue | Effort | Impact | Dependencies |
-|----------|-------|--------|--------|-------------|
-| **P0** | #5 Session switching bug | ~50 lines, 3 files | Fixes broken core feature | None |
-| **P0** | #4 File view tree bug | ~150 lines, 2 files | Fixes broken file browser | None |
-| **P0** | #3 Notifications | ~150 lines, 3 files | Core PWA + ntfy feature | None |
-| **P1** | #1 Question features | ~400 lines, 5 files | Enables interactive AI loop | None |
-| **P1** | #2 Project ordering | ~30 lines, 2 files | UX polish | None |
-| **P1** | #6 Multi-session | ~600 lines, 6 files | Major UX improvement | #5 (must fix sessions first) |
-| **P2** | #7 Streaming improvements | ~400 lines, 4 files | Performance/real-time fix | #1 (questions depend on stream) |
+| Priority | Issue | Effort | Impact | Dependencies | Current Status |
+|----------|-------|--------|--------|-------------|----------------|
+| **P0** | #5 Session switching bug | ~50 lines, 3 files | Fixes broken core feature | None | ⚡ Partial |
+| **P0** | #4 File view tree bug | ~150 lines, 2 files | Fixes broken file browser | None | ⚡ Partial |
+| **P0** | #3 Notifications | ~150 lines, 3 files | Core PWA + ntfy feature | None | ⚡ Partial |
+| **P1** | #1 Question features | ~400 lines, 5 files | Enables interactive AI loop | None | ✅ Complete |
+| **P1** | #2 Project ordering | ~30 lines, 2 files | UX polish | None | ❌ Missing |
+| **P1** | #6 Multi-session | ~200 lines, 3 files | Major UX improvement | #5 (done) | ❌ Not started |
+| **P2** | #7 Streaming improvements | ~400 lines, 4 files | Performance/real-time fix | #1 (done) | ❌ Not started |
 
 ---
 
-## Issue #5 — Session Switching Bug (P0)
+## ✅ Issue #1 — Missing Question Features (P1) — COMPLETE
 
-### Root Cause
+**Status: ✅ FULLY IMPLEMENTED — all plan requirements met.**
 
-The `sendMessage()` API call sends **no sessionId** in the request body:
+### Root Cause (Historical)
 
+The OpenCode server emits `question.asked`/`question.replied`/`question.rejected` bus events through its SSE stream (`/global/event`), but:
+- Backend `_stream()` only parsed events with `"permission"` in the type — question events were ignored
+- No backend routes existed for proxying OpenCode's question endpoints
+- No question state management or UI existed in the frontend
+
+### What Was Implemented
+
+**Backend — OpenCodeClient** (`backend/app/opencode.py`):
+- `list_questions()` — GET /question
+- `reply_question()` — POST /question/:id/reply
+- `reject_question()` — POST /question/:id/reject
+
+**Backend — API Routes** (`backend/app/routes/messages.py`):
+- `GET /api/projects/<id>/questions` — list pending questions
+- `POST /api/projects/<id>/questions/<request_id>/reply` — answer questions
+- `POST /api/projects/<id>/questions/<request_id>/reject` — dismiss questions
+- SSE `_update_pending_questions_from_event()` — parses `question.asked` events
+
+**Frontend — Types** (`frontend/src/types.ts`):
+- `QuestionOption`, `QuestionInfo`, `QuestionRequest`, `QuestionTool` interfaces
+
+**Frontend — API** (`frontend/src/api.ts`):
+- `fetchPendingQuestions()`, `replyQuestion()`, `rejectQuestion()`
+
+**Frontend — Component** (`frontend/src/components/ui/QuestionCard.tsx`):
+- Renders question text + radio/checkbox options + custom text input
+- Sits at the bottom of the chat (above composer)
+- Blocks sending while questions are pending
+- Auto-scrolls when questions arrive
+
+**Frontend — State & SSE** (`frontend/src/App.tsx`):
+- `pendingQuestions`, `questionDrafts`, `respondingQuestionId` state
+- `parseQuestionFromStreamData()` — SSE event parsing
+- `handleReplyQuestion()` / `handleRejectQuestion()` handlers
+- Composer disabled via `hasBlockingQuestions`
+
+### Files changed
+- `backend/app/opencode.py` — 3 new methods
+- `backend/app/routes/messages.py` — 3 new routes + `_update_pending_questions_from_event`
+- `backend/app/routes/helpers.py` — `_parse_question_event` helper
+- `frontend/src/types.ts` — 3 new interfaces
+- `frontend/src/api.ts` — 3 new functions
+- `frontend/src/App.tsx` — state, SSE parsing, handler wiring
+- `frontend/src/components/ui/QuestionCard.tsx` — UI component
+- `frontend/src/styles.css` — question card styles
+
+---
+
+## ⚡ Issue #5 — Session Switching Bug (P0) — PARTIAL
+
+**Status: ⚡ PARTIALLY IMPLEMENTED**
+
+### Root Cause (Historical)
+
+The `sendMessage()` API call originally sent **no sessionId** in the request body. The backend resolved the session from `project.last_session_id` via `_ensure_project_session()`, which called `_resolve_project_session(project, client, session_id=None)`. This function could **silently nullify** `last_session_id` on HTTP errors, causing the first session to be used as fallback.
+
+### What's Implemented
+
+**1. `sendMessage()` accepts sessionId** (`frontend/src/api.ts`):
 ```typescript
-// frontend/src/api.ts:131
-body: JSON.stringify({ text })  // <--- missing sessionId!
-```
-
-The backend resolves the session from `project.last_session_id` via `_ensure_project_session()`, which calls `_resolve_project_session(project, client, session_id=None)`. This function can **silently nullify** `last_session_id` on HTTP errors:
-
-```python
-# backend/app/routes.py:557
-except requests.HTTPError:
-    project.last_session_id = None  # <--- silent corruption!
-```
-
-When `last_session_id` is null, the fallback picks the **first session from the list** (often Session A), so messages go to the wrong session.
-
-### Fix
-
-**1. Pass `sessionId` in the API call** (`frontend/src/api.ts`):
-```typescript
-export async function sendMessage(projectId: string, sessionId: string, text: string) {
-  return request(`/api/projects/${projectId}/messages`, {
-    method: "POST",
-    body: JSON.stringify({ sessionId, text }),  // <--- add sessionId
-  });
+export async function sendMessage(projectId: string, text: string, sessionId?: string | null) {
+  body: JSON.stringify({ text, sessionId: sessionId ?? null }),
 }
 ```
 
-**2. Update caller** (`frontend/src/App.tsx:~6128`):
+**2. Callers pass activeSessionId** (`frontend/src/App.tsx`):
 ```typescript
-const result = parsed
-  ? await runCommand(activeProjectId, parsed.command, parsed.argumentsList)
-  : await sendMessage(activeProjectId, activeSessionId, text);  // <--- pass sessionId
+await sendMessage(activeProjectId, text, activeSessionId)
+await runCommand(activeProjectId, parsed.command, parsed.argumentsList, activeSessionId)
 ```
 
-**3. Backend: use provided sessionId** (`backend/app/routes.py` — `send_project_message`):
+**3. Backend uses provided sessionId** (`backend/app/routes/messages.py:83-96`):
 ```python
-body = request.get_json(silent=True) or {}
-text = str(body.get("text") or "").strip()
-session_id = str(body.get("sessionId") or "").strip() or None
-if session_id:
-    session_id = _resolve_project_session(project, opencode_client, session_id=session_id, create_if_missing=False)
+requested_session_id = str(body.get("sessionId") or "").strip() or None
+if requested_session_id:
+    session_id = _resolve_project_session(project, opencode_client,
+        session_id=requested_session_id, create_if_missing=False)
 else:
     session_id = _ensure_project_session(project, opencode_client)
 ```
 
-**4. Fix `_resolve_project_session`** — don't silently nullify `last_session_id` on HTTP errors:
+**4. `{ silent: true }` in handleSwitchSession** (`frontend/src/App.tsx`):
+```typescript
+loadProjectSessions(activeProjectId, { silent: true })
+```
+
+### What's Still Missing
+
+**5. `_resolve_project_session` incomplete re-raise** (`backend/app/routes/helpers.py:628-632`):
 ```python
 except requests.HTTPError as exc:
     project.last_session_id = None
     db.session.commit()
-    raise  # <--- re-raise instead of silently continuing
+    if session_id:
+        raise ValueError("Selected session could not be loaded") from exc
+    # ^^^ only re-raises when explicit session_id is provided
+    # When resolving from project.last_session_id (session_id=None),
+    # it falls through silently and picks the first session from the list
 ```
 
-**5. Use `{ silent: true }` consistently** (`App.tsx`) — after explicit user action, don't let `loadProjectSessions()` overwrite `activeSessionId`:
-```typescript
-// In handleSwitchSession, after the switch is confirmed:
-await Promise.all([
-  loadProjectSessions(activeProjectId, { silent: true }),  // was: no options
-  ...
-]);
-```
+**Remaining work**: The re-raise should happen **regardless** of whether `session_id` was explicit or from `last_session_id`. When `last_session_id` fails to load, it should propagate the error instead of silently falling back to the first session.
+
+### Files changed
+- `frontend/src/api.ts` — sendMessage signature
+- `frontend/src/App.tsx` — callers pass sessionId, silent mode
+- `backend/app/routes/messages.py` — sessionId parsing in send_project_message
+- `backend/app/routes/helpers.py` — _resolve_project_session re-raise logic
 
 ---
 
-## Issue #4 — File View Tree Bug (P0)
+## ⚡ Issue #4 — File View Tree Bug (P0) — PARTIAL
 
-### Root Cause
+**Status: ⚡ PARTIALLY IMPLEMENTED**
+
+### Root Cause (Historical)
 
 Two problems:
+1. Auto-collapse race condition: An `useEffect` auto-collapsed any directory not yet in `loadedDirectories`, undoing user expansions when async fetches completed out of order.
+2. Flat-list approach: Parent-child relationships were implicit (path-based) rather than explicit, producing interleaving artifacts.
 
-1. **Auto-collapse race condition** (`App.tsx:2327-2337`): An `useEffect` auto-collapses any directory not yet in `loadedDirectories`. If the user expands dir A, then B, and A's async fetch completes first, the effect re-collapses B (undoing the user's action) because B isn't in `loadedDirectories` yet.
+### What's Implemented
 
-2. **Flat-list approach**: The file tree is a flat array sorted by string comparison. Parent-child relationships are implicit (path-based) rather than explicit. This makes the view fragile and produces interleaving artifacts for complex directory structures.
+**1. Tree structure building** (`frontend/src/utils/fileUtils.ts`):
+- `buildFileTree()` — converts flat entry list into `TreeNode[]` with explicit parent-child links
+- `flattenFileTree()` — flattens tree respecting collapsed state
 
-### Fix
+**2. Tree-based rendering** (`frontend/src/components/projects/ProjectFilesPanel.tsx`):
+- Uses `buildFileTree`/`flattenFileTree` instead of flat array
+- Proper nesting with indentation
 
-**1. Remove the auto-collapse effect** (`App.tsx:2327-2337`):
+**3. Stale request deduplication** (`frontend/src/App.tsx`):
+- `projectFileLoadGenerationRef` counter
+- `loadProjectDirectoryEntries` checks generation before applying state
+
+**4. Auto-collapse useEffect** — Modified (but not removed):
 ```typescript
-// DELETE this entire useEffect — it causes race conditions
-useEffect(() => {
-  setCollapsedDirectories((current) => {
-    const next = new Set(current);
-    for (const entry of dedupedEntries) {
-      if (entry.isDir && !loadedDirectories.includes(entry.path)) {
-        next.add(entry.path);
-      }
-    }
-    return next;
-  });
-}, [dedupedEntries, loadedDirectories]);
+// Current behavior: only collapses when current.size === 0 (initial state)
+// This avoids the race condition but the effect still exists
+if (current.size === 0) { ... }
 ```
 
-**2. Build a proper tree structure** for rendering in `ProjectFilesPanel` (`App.tsx`):
-```typescript
-interface TreeNode {
-  entry: ProjectFileEntry;
-  children: TreeNode[];
-}
+### What's Still Missing
 
-function buildTree(entries: ProjectFileEntry[]): TreeNode[] {
-  const roots: TreeNode[] = [];
-  const map = new Map<string, TreeNode>();
-  
-  // Sort by path length ascending so parents come before children
-  const sorted = [...entries].sort((a, b) => a.path.localeCompare(b.path));
-  
-  for (const entry of sorted) {
-    const node: TreeNode = { entry, children: [] };
-    map.set(entry.path, node);
-    
-    const parentPath = entry.path.includes("/")
-      ? entry.path.slice(0, entry.path.lastIndexOf("/"))
-      : null;
-    
-    if (parentPath && map.has(parentPath)) {
-      map.get(parentPath)!.children.push(node);
-    } else {
-      roots.push(node);
-    }
+**Remaining work**: The auto-collapse `useEffect` should be **removed entirely** as the plan specified. The initial collapse state should be set at declaration time instead:
+```typescript
+const [collapsedDirectories, setCollapsedDirectories] = useState<Set<string>>(() => {
+  // Compute initial collapsed state here, not in a useEffect
+  const initial = new Set<string>();
+  for (const entry of entries) {
+    if (entry.isDir) initial.add(entry.path);
   }
-  return roots;
-}
-```
-
-**3. Replace the flattening logic** to use the tree:
-```typescript
-function flattenTree(nodes: TreeNode[], collapsed: Set<string>): ProjectFileEntry[] {
-  const result: ProjectFileEntry[] = [];
-  function walk(list: TreeNode[]) {
-    for (const node of list) {
-      result.push(node.entry);
-      if (node.entry.isDir && !collapsed.has(node.entry.path)) {
-        walk(node.children);
-      }
-    }
-  }
-  walk(nodes);
-  return result;
-}
-```
-
-**4. Add stale request deduplication** with an abort counter on project switch:
-```typescript
-const fileLoadGenerationRef = useRef(0);
-async function loadProjectDirectoryEntries(projectId, directory, reset) {
-  const generation = ++fileLoadGenerationRef.current;
-  // ... fetch ...
-  if (generation !== fileLoadGenerationRef.current) return; // stale
-  // ... update state ...
-}
+  return initial;
+});
 ```
 
 ### Files changed
-- `frontend/src/App.tsx` — `ProjectFilesPanel`, remove auto-collapse effect, add tree building/flattening
-- `backend/app/routes.py` — optional: simplify depth calculation
+- `frontend/src/utils/fileUtils.ts` — `buildFileTree`, `flattenFileTree`
+- `frontend/src/components/projects/ProjectFilesPanel.tsx` — tree rendering, remove auto-collapse effect
+- `frontend/src/App.tsx` — stale request dedup ref, loadProjectDirectoryEntries
 
 ---
 
-## Issue #3 — PWA Notifications (P0)
+## ⚡ Issue #3 — PWA Notifications (P0) — PARTIAL
 
-### Root Cause
+**Status: ⚡ PARTIALLY IMPLEMENTED — functionally works, some bugs possible**
 
-Current notification code (`App.tsx:5596-5629`) uses `document.hidden` + `new Notification()`:
+### Root Cause (Historical)
+
+Current notification code used `document.hidden` + `new Notification()`:
 - `document.hidden` behavior is inconsistent in PWA standalone mode across browsers
 - iOS Safari PWA doesn't support the Notification API
-- No **ntfy** or **service worker push** channel exists
+- No **ntfy** or **service worker push** channel existed
 - No configuration UI for ntfy topic URL
 
-### Fix
+### What's Implemented
 
-**1. Add `NOTIFICATION_NTFY_TOPIC_URL` config option** (`.env` + `config.py`):
-```python
-# backend/app/config.py
-notification_ntfy_topic_url: str = ""  # e.g. https://ntfy.homelabrb.duckdns.org/Chanakya
-```
+**Backend — Notification routes** (`backend/app/routes/notifications.py`):
+- `GET /api/notifications/settings` — get notification settings
+- `PUT /api/notifications/settings` — save notification settings
+- `POST /api/notifications/ntfy/test` — test ntfy connectivity
+- `POST /api/notifications/ntfy/send` — send ntfy notification
+- `_send_ntfy_notification()` helper in helpers.py
 
-**2. Add backend notification route** (`backend/app/routes.py`):
-```python
-@app.post("/api/notify/ntfy")
-@auth_required
-def notify_via_ntfy():
-    body = request.get_json(silent=True) or {}
-    message = str(body.get("message") or "").strip()
-    title = str(body.get("title") or "OpenCode Controller").strip()
-    topic_url = current_app.config.get("NOTIFICATION_NTFY_TOPIC_URL", "")
-    if not topic_url or not message:
-        return jsonify({"error": "Missing topic URL or message"}), 400
-    try:
-        resp = requests.post(
-            topic_url,
-            data=message.encode("utf-8"),
-            headers={
-                "Title": title,
-                "Priority": "4",
-                "Tags": "robot",
-                "Markdown": "yes",
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        return jsonify({"ok": True})
-    except Exception as exc:
-        return jsonify({"error": f"ntfy failed: {exc}"}), 502
-```
+**Frontend — API** (`frontend/src/api.ts`):
+- `fetchNotificationSettings()`, `saveNotificationSettings()`
+- `testNtfyNotification()`, `sendNtfyNotification()`
 
-**3. Add ntfy API function** (`frontend/src/api.ts`):
-```typescript
-export async function sendNtfyNotification(projectId: string, message: string, title?: string) {
-  return request("/api/notify/ntfy", {
-    method: "POST",
-    body: JSON.stringify({ message, title, projectId }),
-  });
-}
-```
+**Frontend — Component** (`frontend/src/components/toolbar/NotificationControls.tsx`):
+- Notification channel selector (Browser / ntfy / Both / Off)
+- ntfy topic URL input with placeholder
+- Turn on / Turn off / Save settings / Test ntfy buttons
 
-**4. Update notification effect** (`App.tsx:5596-5629`):
-- Add a notification channel selector: `"browser" | "ntfy" | "both"`
-- For `"browser"`: fire `new Notification()` as before, but remove `document.hidden` guard so it works in PWA standalone mode
-- For `"ntfy"`: call `sendNtfyNotification()` with the message
-- For `"both"`: do both
+**Frontend — Notification effect** (`frontend/src/App.tsx`):
+- Browser notifications fire without `document.hidden` guard
+- ntfy channel calls `sendNtfyNotification()`
+- Channel-based routing: browser, ntfy, both, off
 
-**5. Add notification config UI** in the settings/toolbar panel:
-- Notification channel selector (Browser / ntfy / Both)
-- ntfy topic URL input (stored in backend `AppSetting`)
-- Test button to verify ntfy connectivity
+**Frontend — Types** (`frontend/src/types.ts`):
+- `NotificationChannel` type: `"browser" | "ntfy" | "both" | "off"`
+- `NotificationSettings` interface
 
-### ntfy Reference
+### Possible Bugs & Remaining Work
 
-ntfy API is simple HTTP POST:
-```bash
-curl -d "Backup successful" ntfy.sh/mytopic
-curl -H "Title: Alert" -H "Priority: high" -H "Tags: warning" -d "Disk full" ntfy.sh/mytopic
-```
+1. **Route naming difference**: Plan specified `/api/notify/ntfy`, actual is `/api/notifications/ntfy/send` — not a functional issue, but the plan should reflect reality.
 
-The user's ntfy server: `https://ntfy.homelabrb.duckdns.org/Chanakya`
+2. **Notification delivery logic**: The user noted "notification only to browser or ntfy or both may have some bugs". Possible issues:
+   - Browser notification may fire even when `channel === "ntfy"` (incorrect routing)
+   - ntfy may not fire when `channel === "both"` (missing fallback)
+   - The `sendNtfyNotification` sends `ntfyTopicUrl` with the request but the backend reads it from `AppSetting` — potential mismatch
+   - Need to verify the notification effect's channel-based conditions
+
+3. **Missing frontend `useMemo` sort** (cross-reference with #2): The notification card and runtime card are in a grid that doesn't prioritize the active project.
 
 ### Files changed
-- `.env` — add `NOTIFICATION_NTFY_TOPIC_URL`
-- `backend/app/config.py` — add config field
-- `backend/app/routes.py` — add `POST /api/notify/ntfy` route
-- `frontend/src/api.ts` — add `sendNtfyNotification()`
-- `frontend/src/App.tsx` — update notification effect and settings UI
+- `backend/app/routes/notifications.py` — all notification routes
+- `backend/app/routes/helpers.py` — `_send_ntfy_notification`
+- `frontend/src/api.ts` — notification API functions
+- `frontend/src/App.tsx` — notification state, effect, handler wiring
+- `frontend/src/components/toolbar/NotificationControls.tsx` — UI component
+- `frontend/src/types.ts` — NotificationChannel type
 
 ---
 
-## Issue #1 — Missing Question Features (P1)
+## ❌ Issue #2 — Project List Ordering (P1) — MISSING FRONTEND PART
+
+**Status: ❌ PARTIALLY MISSING — backend done, frontend not done**
 
 ### Root Cause
 
-The OpenCode server emits `question.asked`/`question.replied`/`question.rejected` bus events through its SSE stream (`/global/event`), but:
+Projects are ordered by `Project.last_activity_at DESC` on the backend. However, `last_activity_at` is only updated when sending a message or switching sessions — **not** when simply clicking/selecting a project. The frontend also doesn't sort active project first.
 
-- Backend `_stream()` only parses events with `"permission"` in the type — question events are ignored
-- No backend routes exist for proxying OpenCode's question endpoints (`GET /question`, `POST /question/:id/reply`, `POST /question/:id/reject`)
-- No question state management or UI exists in the frontend
+### What's Implemented
 
-### OpenCode Question API Reference
-
-**Schema** (from `packages/opencode/src/question/index.ts`):
-```typescript
-interface Option { label: string; description: string; }
-interface Info { question: string; header: string; options: Option[]; multiple?: boolean; custom?: boolean; }
-interface Tool { messageID: string; callID: string; }
-interface Request { id: string; sessionID: string; questions: Info[]; tool?: Tool; }
-type Answer = string[];  // selected option labels
-interface Reply { answers: Answer[]; }
-```
-
-**Bus Events**: `question.asked` (payload: `Request`), `question.replied` (payload: `{ sessionID, requestID, answers }`), `question.rejected` (payload: `{ sessionID, requestID }`)
-
-**HTTP Endpoints** (from `packages/opencode/src/server/routes/instance/httpapi/groups/question.ts`):
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/question` | List all pending questions |
-| POST | `/question/:requestID/reply` | Answer with `{ answers: string[][] }` |
-| POST | `/question/:requestID/reject` | Reject/dismiss the question |
-
-### Fix
-
-**1. Add question methods to `OpenCodeClient`** (`backend/app/opencode.py`):
+**Backend — last_activity_at updates** — both done:
+1. On project select (`backend/app/routes/projects.py:220`):
 ```python
-def list_questions(self) -> list[dict]:
-    response = requests.get(f"{self.base_url}/question", headers=self._headers(), timeout=10)
-    response.raise_for_status()
-    data = response.json()
-    return data if isinstance(data, list) else []
-
-def respond_question(self, request_id: str, answers: list[list[str]]) -> bool:
-    response = requests.post(
-        f"{self.base_url}/question/{request_id}/reply",
-        json={"answers": answers},
-        headers=self._headers(),
-        timeout=20,
-    )
-    response.raise_for_status()
-    return bool(response.json())
-
-def reject_question(self, request_id: str) -> bool:
-    response = requests.post(
-        f"{self.base_url}/question/{request_id}/reject",
-        headers=self._headers(),
-        timeout=10,
-    )
-    response.raise_for_status()
-    return bool(response.json())
-```
-
-**2. Add question API routes** (`backend/app/routes.py`):
-```python
-@app.get("/api/projects/<int:project_id>/questions")
-@auth_required
-def list_pending_questions(project_id: int):
-    try:
-        questions = opencode_client.list_questions()
-        return jsonify({"questions": questions})
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 502
-
-@app.post("/api/projects/<int:project_id>/questions/<request_id>/reply")
-@auth_required
-def reply_to_question(project_id: int, request_id: str):
-    body = request.get_json(silent=True) or {}
-    answers = body.get("answers", [])
-    try:
-        success = opencode_client.respond_question(request_id, answers)
-        return jsonify({"ok": success})
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 502
-
-@app.post("/api/projects/<int:project_id>/questions/<request_id>/reject")
-@auth_required
-def reject_question(project_id: int, request_id: str):
-    try:
-        success = opencode_client.reject_question(request_id)
-        return jsonify({"ok": success})
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 502
-```
-
-**3. Parse question events in SSE stream** (`backend/app/routes.py` — `_stream()`):
-Add a function similar to `_update_pending_approvals_from_event` that detects `question.asked` events and stores them in `AppSetting` (keyed by project_id).
-Also emit them in the SSE data so the frontend can detect them immediately.
-
-**4. Add question types** (`frontend/src/types.ts`):
-```typescript
-export interface QuestionOption {
-  label: string;
-  description: string;
-}
-
-export interface QuestionInfo {
-  question: string;
-  header: string;
-  options: QuestionOption[];
-  multiple?: boolean;
-  custom?: boolean;
-}
-
-export interface QuestionRequest {
-  id: string;
-  sessionID: string;
-  questions: QuestionInfo[];
-  tool?: { messageID: string; callID: string };
-}
-```
-
-**5. Add question API functions** (`frontend/src/api.ts`):
-```typescript
-export async function fetchPendingQuestions(projectId: string): Promise<{ questions: QuestionRequest[] }> {
-  return request(`/api/projects/${projectId}/questions`);
-}
-
-export async function respondQuestion(projectId: string, requestId: string, answers: string[][]): Promise<{ ok: boolean }> {
-  return request(`/api/projects/${projectId}/questions/${requestId}/reply`, {
-    method: "POST",
-    body: JSON.stringify({ answers }),
-  });
-}
-
-export async function rejectQuestion(projectId: string, requestId: string): Promise<{ ok: boolean }> {
-  return request(`/api/projects/${projectId}/questions/${requestId}/reject`, {
-    method: "POST",
-  });
-}
-```
-
-**6. Add question state and UI** (`frontend/src/App.tsx`):
-- Add `pendingQuestions: QuestionRequest[]` state variable
-- Parse question events from SSE stream in `parseApprovalFromStreamData` (or a new parallel function)
-- Add a `QuestionCard` component (renders question text + radio/checkbox options + custom text input)
-- Show question card(s) above the composer (like approval cards)
-- Block sending while questions are pending (like `hasBlockingApprovals`)
-- Add `respondQuestion` / `rejectQuestion` handlers wired to the UI
-
-### Files changed
-- `backend/app/opencode.py` — 3 new methods
-- `backend/app/routes.py` — 3 new routes + SSE stream parsing
-- `frontend/src/types.ts` — 3 new interfaces
-- `frontend/src/api.ts` — 3 new functions
-- `frontend/src/App.tsx` — state, SSE parsing, UI component
-
----
-
-## Issue #2 — Project List Ordering (P1)
-
-### Root Cause
-
-Projects are ordered by `Project.last_activity_at DESC` on the backend (`routes.py:1371`). However, `last_activity_at` is only updated when sending a message or switching sessions — **not** when simply clicking/selecting a project. So the order doesn't reflect "last opened" behavior.
-
-### Fix
-
-**1. Update `last_activity_at` on project select** (`backend/app/routes.py` — the `selectProject` route or the frontend's `handleSelectProject`):
-```python
-# In the select/switch project route:
 project.last_activity_at = _utc_now()
-db.session.commit()
+```
+2. On session switch (`backend/app/routes/sessions.py:127`):
+```python
+project.last_activity_at = _utc_now()
 ```
 
-**2. Frontend: sort active project first, rest by lastActivityAt** (`App.tsx`):
+### What's Still Missing
+
+**Frontend sort memo** (`frontend/src/App.tsx` or project list component):
+
+The active project should always appear first, regardless of `last_activity_at`. Currently the list relies solely on backend `ORDER BY last_activity_at DESC`.
+
+**Fix**:
 ```typescript
 const sortedProjects = useMemo(() => {
     return [...projects].sort((a, b) => {
@@ -465,13 +311,18 @@ const sortedProjects = useMemo(() => {
 }, [projects, activeProjectId]);
 ```
 
+Apply in the component that renders the project list (likely in `frontend/src/components/projects/` or `frontend/src/App.tsx`).
+
 ### Files changed
-- `backend/app/routes.py` — add `last_activity_at` update in select/switch
-- `frontend/src/App.tsx` — add project sorting memo (or use backend ordering)
+- `backend/app/routes/projects.py` — ✅ done
+- `backend/app/routes/sessions.py` — ✅ done
+- `frontend/src/App.tsx` or project list component — ❌ pending
 
 ---
 
-## Issue #6 — Multi-Session Simultaneous Conversations (P1)
+## ❌ Issue #6 — Multi-Session Simultaneous Conversations (P1) — NOT STARTED
+
+**Status: ❌ NOT STARTED — session switching works (from #5) but UI is still a dropdown**
 
 ### Requirement
 
@@ -488,18 +339,27 @@ Allow multiple active conversations (sessions) per project to be visible and int
 │  │  Session A messages...                           │ │
 │  │  ...                                            │ │
 │  ├─────────────────────────────────────────────────┤ │
-│  │  [Composer for Session A]                      │ │
+│  │  [Composer for Session A]                       │ │
 │  └─────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────┘
 ```
 
+### Current State
+
+Session management is handled by `RuntimeControls` (merged into the same `.runtime-controls` grid as Model/Agent):
+- `<select>` dropdown for session switching
+- "New session" and "Delete" buttons below
+- Single active session model — no multi-pane or unified timeline
+
 ### Fix (Phased)
 
 **Phase 1 — Session tabs (replaces the dropdown):**
-1. Replace `SessionControls` (`<select>`) with a horizontal tab bar of session buttons
-2. Each session shows a truncated label + timestamp
+1. Replace the `<select>` in `RuntimeControls` with a horizontal tab bar of session buttons
+2. Each session tab shows a truncated label + timestamp
 3. Active session is highlighted; clicking a tab switches (using the already-working `handleSwitchSession`)
 4. Add a "+" tab at the end for `handleCreateSession`
+5. Move session back to a `SessionTabs` component (currently inlined in `RuntimeControls`)
+6. **Files**: `frontend/src/components/toolbar/RuntimeControls.tsx`, `frontend/src/styles.css`, `frontend/src/App.tsx`
 
 **Phase 2 — Multiple active session panes:**
 1. Allow multiple sessions to be "pinned" as active
@@ -512,20 +372,30 @@ Allow multiple active conversations (sessions) per project to be visible and int
 2. Each message is tagged with its session label/color
 3. Composer has a session selector (or sends to the active session, showing in the unified view)
 
-**Note:** Phase 1 is the most impactful with the least code. Phase 2-3 are major rearchitectures.
+**Note:** Phase 1 is the most impactful with the least code. Phase 2-3 are major rearchitectures (~600+ lines each).
 
 ### Files changed
-- `frontend/src/App.tsx` — session tab bar, multi-pane rendering
+- `frontend/src/components/toolbar/RuntimeControls.tsx` — extract session UI back to separate component
+- `frontend/src/components/toolbar/SessionTabs.tsx` — NEW: session tab bar component
+- `frontend/src/App.tsx` — wire session tab bar
 - `frontend/src/styles.css` — session tab styles
-- Phase 2-3: extensive changes
+- Phase 2-3: extensive changes across chat components
 
 ---
 
-## Issue #7 — Streaming Improvements (P2)
+## ❌ Issue #7 — Streaming Improvements (P2) — NOT STARTED
+
+**Status: ❌ NOT STARTED — question.asked is parsed (from #1), but text events and incremental updates are not**
 
 ### Root Cause
 
 The SSE stream is used as a **poll signal** rather than as the actual data source. The frontend ignores most event types and triggers debounced REST reloads (700ms) for every event. This adds latency and race conditions.
+
+### Current State
+
+- `question.asked` events **are** parsed (part of Issue #1 implementation)
+- All other event types (`text.delta`, `text.ended`, `prompted`, etc.) trigger a 700ms debounced full reload via `scheduleStreamRefresh`
+- No heartbeat handling
 
 ### Reference Implementation
 
@@ -533,24 +403,19 @@ OpenCode's SSE stream (`packages/opencode/src/server/routes/instance/httpapi/han
 - Subscribes to **all** bus events via `bus.subscribeAll()`
 - Pushes typed JSON events: `text.delta`, `tool.called`, `question.asked`, etc.
 - 10-second heartbeat to keep connection alive
-- The frontend (Solid.js app) uses TanStack Query to reactively update state from these events
-
-Our app's `GET /api/projects/<id>/stream` already proxies the raw OpenCode events but the frontend ignores most of them.
 
 ### Fix
 
-**1. Parse all event types in the frontend** (`App.tsx` `stream.onmessage` handler):
+**1. Parse all event types in the frontend** (`frontend/src/App.tsx` `stream.onmessage` handler):
 ```typescript
-// Current: only checks for permission events
-// New: parse all typed events
 stream.onmessage = (event) => {
   const data = JSON.parse(event.data);
   const sessionId = data.sessionId;
   const rawEvents: string[] = data.event;
-  
+
   let hasMessageUpdate = false;
   let hasQuestionUpdate = false;
-  
+
   for (const raw of rawEvents) {
     if (raw.startsWith("event: ")) {
       const eventType = raw.slice(7).trim();
@@ -563,7 +428,7 @@ stream.onmessage = (event) => {
       }
     }
   }
-  
+
   if (hasQuestionUpdate) loadPendingQuestions(activeProjectId);
   if (hasMessageUpdate) scheduleStreamRefresh(activeProjectId);
 };
@@ -580,8 +445,9 @@ For events like `text.delta`, update the last assistant message's text in-place 
 **Note:** Full incremental update (step 2) is a significant refactor. Step 1 alone (better event classification) is already valuable.
 
 ### Files changed
-- `frontend/src/App.tsx` — stream event handling, incremental update logic
-- `backend/app/routes.py` — possible minor stream improvements
+- `frontend/src/App.tsx` — stream event parsing, incremental update logic, heartbeat handling
+- `frontend/src/utils/streamUtils.ts` — event type classification utilities
+- `backend/app/routes/messages.py` — possible minor stream improvements (forward heartbeat metadata)
 
 ---
 
@@ -610,12 +476,18 @@ For events like `text.delta`, update the last assistant message's text in-place 
 - **Self-hosting**: https://docs.ntfy.sh/install/
 
 ### This App's Key Files
-- `frontend/src/App.tsx` — Main UI component (~7490 lines, monolithic)
+- `frontend/src/App.tsx` — Main UI component (~4612 lines, monolithic)
 - `frontend/src/api.ts` — Frontend API wrapper
 - `frontend/src/types.ts` — TypeScript types
 - `frontend/src/styles.css` — Styles
 - `frontend/public/sw.js` — Service Worker
-- `backend/app/routes.py` — All Flask routes (~2486 lines)
+- `backend/app/routes/messages.py` — Message & question routes
+- `backend/app/routes/helpers.py` — Shared helper functions
+- `backend/app/routes/notifications.py` — Notification routes
+- `backend/app/routes/sessions.py` — Session management routes
+- `backend/app/routes/projects.py` — Project CRUD routes
+- `backend/app/routes/runtime.py` — Runtime model/agent routes
+- `backend/app/routes/tasks.py` — Task/scheduler routes
 - `backend/app/opencode.py` — OpenCode HTTP client wrapper
 - `backend/app/config.py` — Configuration
 - `backend/app/models.py` — SQLAlchemy models
@@ -626,14 +498,14 @@ For events like `text.delta`, update the last assistant message's text in-place 
 
 ## Effort Summary
 
-| Issue | Frontend files | Backend files | New types | Total est. lines |
-|-------|---------------|--------------|-----------|-----------------|
-| #5 Session bug | 1 | 1 | 0 | ~50 |
-| #4 File tree | 1 | 0 | 0 | ~150 |
-| #3 Notifications | 2 | 3 | 0 | ~150 |
-| #1 Questions | 3 | 4 | 3 | ~400 |
-| #2 Project order | 1 | 1 | 0 | ~30 |
-| #6 Multi-session | 2 | 0 | 0 | ~600 |
-| #7 Streaming | 1 | 1 | 0 | ~400 |
+| Issue | Frontend files | Backend files | New types | Status | Remaining est. lines |
+|-------|---------------|--------------|-----------|--------|---------------------|
+| #1 Questions | 4 | 3 | 3 | ✅ Complete | 0 |
+| #5 Session bug | 2 | 2 | 0 | ⚡ Partial | ~5 |
+| #4 File tree | 3 | 0 | 0 | ⚡ Partial | ~10 |
+| #3 Notifications | 3 | 2 | 1 | ⚡ Partial | debug |
+| #2 Project order | 1 | 2 | 0 | ❌ Missing | ~15 |
+| #6 Multi-session | 3 | 0 | 0 | ❌ Not started | ~200 (Phase 1) |
+| #7 Streaming | 2 | 1 | 0 | ❌ Not started | ~400 |
 
-**Total: ~1780 lines across ~18 file changes** (many files touched by multiple issues; the monolithic `App.tsx` and `routes.py` are touched by almost all).
+**Total remaining: ~630 lines across remaining open items**
