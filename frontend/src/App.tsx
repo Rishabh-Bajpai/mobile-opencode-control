@@ -348,6 +348,16 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
   const pendingScrollAnchorRef = useRef<{ entryId: string; top: number } | null>(null);
   const lastFinalAssistantMessageIdByChatRef = useRef<Record<string, string>>({});
   const awaitingFinalReplyNotificationByChatRef = useRef<Record<string, boolean>>({});
+  const notificationDebounceTimerRef = useRef<number | null>(null);
+  const pendingNotificationDataRef = useRef<{
+    chatKey: string;
+    projectName: string;
+    messageText: string;
+    messageId: string;
+    shouldNotifyBrowser: boolean;
+    shouldNotifyNtfy: boolean;
+  } | null>(null);
+  const prevApprovalCountRef = useRef(0);
   const previousActivityEntriesRef = useRef<Array<{ stateKey: string; childIds: string[] }>>([]);
   const taskLoadRequestRef = useRef(0);
   const sessionLoadRequestRef = useRef(0);
@@ -2753,9 +2763,37 @@ async function loadDiff(projectId: string) {
         const offsetTop = cardRect.top - bodyRect.top + body.scrollTop - 24;
         body.scrollTo({ top: Math.max(0, offsetTop), behavior: "smooth" });
       }
+      const q = pendingQuestions[pendingQuestions.length - 1];
+      const text = q.questions?.[0]?.question || "Agent has a question for you";
+      const notify = notificationsEnabled && (notificationChannel === "browser" || notificationChannel === "both");
+      if (notify && "Notification" in window && Notification.permission === "granted") {
+        const n = new Notification(activeProject?.name || "Agent question", { body: text, tag: `question:${q.id}` });
+        n.onclick = () => { window.focus(); n.close(); };
+      }
+      const ntfy = notificationsEnabled && (notificationChannel === "ntfy" || notificationChannel === "both") && ntfyTopicUrl.trim();
+      if (ntfy) {
+        void sendNtfyNotification({ title: activeProject?.name || "Agent question", message: text, ntfyTopicUrl: ntfyTopicUrl.trim() }).catch(() => {});
+      }
     }
     prevQuestionCountRef.current = pendingQuestions.length;
-  }, [pendingQuestions.length]);
+  }, [pendingQuestions.length, notificationsEnabled, notificationChannel, ntfyTopicUrl, activeProject?.name]);
+
+  useEffect(() => {
+    if (pendingApprovals.length > 0 && prevApprovalCountRef.current === 0) {
+      const a = pendingApprovals[pendingApprovals.length - 1];
+      const text = a.title || a.details || "Agent needs your permission";
+      const notify = notificationsEnabled && (notificationChannel === "browser" || notificationChannel === "both");
+      if (notify && "Notification" in window && Notification.permission === "granted") {
+        const n = new Notification(activeProject?.name || "Permission needed", { body: text, tag: `approval:${a.permissionId}` });
+        n.onclick = () => { window.focus(); n.close(); };
+      }
+      const ntfy = notificationsEnabled && (notificationChannel === "ntfy" || notificationChannel === "both") && ntfyTopicUrl.trim();
+      if (ntfy) {
+        void sendNtfyNotification({ title: activeProject?.name || "Permission needed", message: text, ntfyTopicUrl: ntfyTopicUrl.trim() }).catch(() => {});
+      }
+    }
+    prevApprovalCountRef.current = pendingApprovals.length;
+  }, [pendingApprovals.length, notificationsEnabled, notificationChannel, ntfyTopicUrl, activeProject?.name]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
@@ -2804,31 +2842,58 @@ async function loadDiff(projectId: string) {
       (notificationChannel === "ntfy" || notificationChannel === "both") &&
       ntfyTopicUrl.trim().length > 0;
 
-    if (shouldNotifyBrowser) {
-      const notification = new Notification(activeProject?.name || "Agent reply", {
-        body: latestFinalAssistantMessage.text.trim().slice(0, 180),
-        tag: `${activeChatKey}:${latestFinalAssistantMessage.id}`,
-      });
-      notification.onclick = () => {
-        window.focus();
-        notification.close();
-      };
-    }
-
-    if (shouldNotifyNtfy) {
-      void sendNtfyNotification({
-        title: activeProject?.name || "Agent reply",
-        message: latestFinalAssistantMessage.text.trim().slice(0, 180),
-        ntfyTopicUrl: ntfyTopicUrl.trim(),
-      }).catch(() => {
-        // Keep chat rendering resilient if background notification delivery fails.
-      });
-    }
-
     if (isNewFinalReply) {
-      awaitingFinalReplyNotificationByChatRef.current[activeChatKey] = false;
+      if (notificationDebounceTimerRef.current !== null) {
+        clearTimeout(notificationDebounceTimerRef.current);
+      }
+
+      pendingNotificationDataRef.current = {
+        chatKey: activeChatKey,
+        projectName: activeProject?.name || "Agent reply",
+        messageText: latestFinalAssistantMessage.text.trim().slice(0, 180),
+        messageId: latestFinalAssistantMessage.id,
+        shouldNotifyBrowser,
+        shouldNotifyNtfy,
+      };
+
+      notificationDebounceTimerRef.current = window.setTimeout(() => {
+        notificationDebounceTimerRef.current = null;
+        const data = pendingNotificationDataRef.current;
+        if (!data) return;
+
+        if (data.shouldNotifyBrowser) {
+          const notification = new Notification(data.projectName, {
+            body: data.messageText,
+            tag: `${data.chatKey}:${data.messageId}`,
+          });
+          notification.onclick = () => {
+            window.focus();
+            notification.close();
+          };
+        }
+
+        if (data.shouldNotifyNtfy) {
+          void sendNtfyNotification({
+            title: data.projectName,
+            message: data.messageText,
+            ntfyTopicUrl: ntfyTopicUrl.trim(),
+          }).catch(() => {
+            // Keep chat rendering resilient if background notification delivery fails.
+          });
+        }
+
+        awaitingFinalReplyNotificationByChatRef.current[data.chatKey] = false;
+        lastFinalAssistantMessageIdByChatRef.current[data.chatKey] = data.messageId;
+        pendingNotificationDataRef.current = null;
+      }, 2500);
     }
-    lastFinalAssistantMessageIdByChatRef.current[activeChatKey] = latestFinalAssistantMessage.id;
+
+    return () => {
+      if (notificationDebounceTimerRef.current !== null) {
+        clearTimeout(notificationDebounceTimerRef.current);
+        notificationDebounceTimerRef.current = null;
+      }
+    };
   }, [activeChatKey, activeProject?.name, messages, notificationChannel, notificationsEnabled, ntfyTopicUrl]);
 
   useEffect(() => {
