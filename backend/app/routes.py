@@ -1518,37 +1518,6 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         db.session.add(project)
         db.session.commit()
 
-        use_ralph_loop = body.get("useRalphLoop", False)
-        if use_ralph_loop:
-            import shutil
-            import stat
-            import logging
-            try:
-                # Backend runs from repo root or backend dir
-                # Try to locate the source template files
-                repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                src_scripts = os.path.join(repo_root, "scripts", "ralph")
-                src_prd = os.path.join(repo_root, "prd.json.example")
-
-                if not os.path.exists(src_scripts):
-                    # fallback
-                    src_scripts = os.path.abspath(os.path.join("scripts", "ralph"))
-                    src_prd = os.path.abspath("prd.json.example")
-
-                target_scripts = os.path.join(normalized_path, "scripts", "ralph")
-                os.makedirs(target_scripts, exist_ok=True)
-
-                shutil.copy(os.path.join(src_scripts, "ralph.sh"), os.path.join(target_scripts, "ralph.sh"))
-                shutil.copy(os.path.join(src_scripts, "prompt.md"), os.path.join(target_scripts, "prompt.md"))
-                shutil.copy(src_prd, os.path.join(normalized_path, "prd.json"))
-
-                ralph_sh_path = os.path.join(target_scripts, "ralph.sh")
-                st = os.stat(ralph_sh_path)
-                os.chmod(ralph_sh_path, st.st_mode | stat.S_IEXEC)
-            except Exception as e:
-                # Proceed anyway if we fail
-                logging.error(f"Failed to initialize Ralph Loop: {e}")
-
         try:
             _ensure_project_session(project, opencode_client)
         except Exception as exc:
@@ -2044,6 +2013,73 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         except Exception as exc:
             return jsonify({"error": str(exc)}), 400
         return jsonify({"runs": [run.isoformat() for run in runs if run is not None]})
+
+    _DEFAULT_PRD_TEMPLATE = {
+        "project": "My Project",
+        "branchName": "ralph/feature",
+        "description": "Short description of what this PRD covers",
+        "userStories": [
+            {
+                "id": "US-001",
+                "title": "First user story",
+                "description": "As a user I want ...",
+                "acceptanceCriteria": ["Criterion 1", "Criterion 2"],
+                "priority": 1,
+                "passes": False,
+                "notes": "",
+            }
+        ],
+    }
+
+    @app.get("/api/projects/<int:project_id>/prd")
+    @auth_required
+    def get_project_prd(project_id: int):
+        project = Project.query.get(project_id)
+        if project is None:
+            return jsonify({"error": "Project not found"}), 404
+
+        try:
+            prd_path = _resolve_project_relative_path(project, "prd.json")
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        if not prd_path.exists():
+            return jsonify({"prd": None})
+
+        try:
+            import json as _json
+            text = prd_path.read_text(encoding="utf-8")
+            prd_data = _json.loads(text)
+        except Exception as exc:
+            return jsonify({"error": f"Unable to read prd.json: {exc}"}), 500
+
+        return jsonify({"prd": prd_data})
+
+    @app.put("/api/projects/<int:project_id>/prd")
+    @auth_required
+    def upsert_project_prd(project_id: int):
+        project = Project.query.get(project_id)
+        if project is None:
+            return jsonify({"error": "Project not found"}), 404
+
+        body = request.get_json(silent=True) or {}
+        prd_content = body.get("prd") or _DEFAULT_PRD_TEMPLATE
+
+        if not isinstance(prd_content, dict):
+            return jsonify({"error": "prd must be a JSON object"}), 400
+
+        try:
+            prd_path = _resolve_project_relative_path(project, "prd.json")
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        try:
+            import json as _json
+            prd_path.write_text(_json.dumps(prd_content, indent=2), encoding="utf-8")
+        except OSError as exc:
+            return jsonify({"error": f"Unable to write prd.json: {exc}"}), 500
+
+        return jsonify({"prd": prd_content})
 
     @app.post("/api/projects/<int:project_id>/session/ensure")
     @auth_required

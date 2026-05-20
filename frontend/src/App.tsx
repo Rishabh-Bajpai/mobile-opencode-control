@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, UIEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, UIEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   abortSession,
@@ -20,6 +20,8 @@ import {
   fetchSchedulerStatus,
   fetchScheduledTask,
   fetchScheduledTaskRuns,
+  fetchProjectPrd,
+  initProjectPrd,
   pauseScheduledTask,
   previewScheduledTask,
   getAuthState,
@@ -48,6 +50,7 @@ import type {
   ProjectFileContent,
   ProjectFileEntry,
   ProjectSession,
+  PrdData,
   RuntimeAgentOption,
   RuntimeModelOption,
   ScheduledTask,
@@ -2736,6 +2739,7 @@ function ScheduledTaskPanel({
   previewRuns,
   runtimeModels,
   runtimeAgents,
+  ralphPanel,
   onNewTask,
   onSelectTask,
   onNameChange,
@@ -2801,6 +2805,7 @@ function ScheduledTaskPanel({
   previewRuns: string[];
   runtimeModels: RuntimeModelOption[];
   runtimeAgents: RuntimeAgentOption[];
+  ralphPanel?: React.ReactNode;
   onNewTask: () => void;
   onSelectTask: (task: ScheduledTask) => void;
   onNameChange: (value: string) => void;
@@ -2849,6 +2854,8 @@ function ScheduledTaskPanel({
               New task
             </button>
           </div>
+
+          {ralphPanel ? ralphPanel : null}
 
           {loading ? <p className="task-muted">Loading tasks...</p> : null}
           {error ? <p className="error">{error}</p> : null}
@@ -3149,6 +3156,106 @@ function ChatStateCard({
   );
 }
 
+const RALPH_TASK_INSTRUCTION = `Read prd.json in this project's root directory. If prd.json does not exist, reply with GOAL_MET: yes.
+
+Find the highest priority user story where passes is false (lowest priority number). Implement that single story:
+- Plan the approach before writing code
+- Make the required changes following existing code patterns
+- Run any available quality checks (tests, typecheck, lint)
+- Commit all changes with message: feat: [story-id] - [story-title]
+- Update prd.json to set passes: true for the completed story
+
+At the end of your response include exactly one of:
+GOAL_MET: yes   (if all stories now have passes: true)
+GOAL_MET: no    (if there are still stories with passes: false)`;
+
+const RALPH_GOAL_DEFINITION = "All user stories in prd.json have passes: true";
+
+function RalphLoopPanel({
+  prdData,
+  prdLoading,
+  prdError,
+  prdInitializing,
+  onInitPrd,
+  onCreateRalphTask,
+}: {
+  prdData: PrdData | null;
+  prdLoading: boolean;
+  prdError: string | null;
+  prdInitializing: boolean;
+  onInitPrd: () => Promise<void>;
+  onCreateRalphTask: () => void;
+}) {
+  const totalStories = prdData?.userStories?.length ?? 0;
+  const passedStories = prdData?.userStories?.filter((s) => s.passes).length ?? 0;
+  const allDone = totalStories > 0 && passedStories === totalStories;
+
+  return (
+    <div className="ralph-panel">
+      <div className="ralph-panel-head">
+        <p className="tasks-kicker">Ralph Loop</p>
+        <div className="ralph-panel-title-row">
+          <strong className="ralph-panel-title">PRD Tracker</strong>
+          {prdData ? (
+            <span className={`task-status-badge ${allDone ? "success" : "idle"}`}>
+              {passedStories}/{totalStories}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {prdLoading ? <p className="task-muted">Loading PRD…</p> : null}
+      {prdError ? <p className="ralph-panel-error">{prdError}</p> : null}
+
+      {!prdLoading && !prdData ? (
+        <div className="ralph-empty">
+          <p className="task-muted">No prd.json found in this project.</p>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={prdInitializing}
+            onClick={() => void onInitPrd()}
+          >
+            {prdInitializing ? "Creating…" : "Init PRD"}
+          </button>
+        </div>
+      ) : null}
+
+      {prdData ? (
+        <>
+          <ul className="ralph-story-list">
+            {prdData.userStories.map((story) => (
+              <li
+                key={story.id}
+                className={`ralph-story-item${story.passes ? " done" : ""}`}
+              >
+                <span className={`task-status-badge ${story.passes ? "success" : "idle"}`}>
+                  {story.passes ? "✓" : story.id}
+                </span>
+                <span className="ralph-story-title" title={story.title}>
+                  {story.title}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {!allDone ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onCreateRalphTask}
+            >
+              Create Ralph Task
+            </button>
+          ) : (
+            <p className="task-muted ralph-done-note">All stories complete 🎉</p>
+          )}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+
 function EmptyState() {
   return (
     <ChatStateCard
@@ -3218,7 +3325,6 @@ export function App() {
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectRootPath, setNewProjectRootPath] = useState("");
   const [newProjectPath, setNewProjectPath] = useState("");
-  const [createWithRalph, setCreateWithRalph] = useState(false);
   const [defaultProjectRoot, setDefaultProjectRoot] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
   const [highlightedProjectId, setHighlightedProjectId] = useState<string | null>(null);
@@ -3312,6 +3418,11 @@ export function App() {
   const [taskNotificationUrlInput, setTaskNotificationUrlInput] = useState("");
   const [taskPreviewRuns, setTaskPreviewRuns] = useState<string[]>([]);
   const [taskEnabledInput, setTaskEnabledInput] = useState(true);
+
+  const [prdData, setPrdData] = useState<PrdData | null>(null);
+  const [prdLoading, setPrdLoading] = useState(false);
+  const [prdError, setPrdError] = useState<string | null>(null);
+  const [prdInitializing, setPrdInitializing] = useState(false);
 
   const [opencodeStatus, setOpencodeStatus] = useState("checking...");
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null);
@@ -5022,6 +5133,49 @@ export function App() {
     }
   }
 
+  async function loadProjectPrd(projectId: string) {
+    setPrdLoading(true);
+    setPrdError(null);
+    try {
+      const result = await fetchProjectPrd(projectId);
+      setPrdData(result.prd);
+    } catch (error) {
+      setPrdError(error instanceof Error ? error.message : "Failed to load PRD");
+      setPrdData(null);
+    } finally {
+      setPrdLoading(false);
+    }
+  }
+
+  async function handleInitPrd() {
+    if (!activeProjectId) {
+      return;
+    }
+    setPrdInitializing(true);
+    setPrdError(null);
+    try {
+      const result = await initProjectPrd(activeProjectId);
+      setPrdData(result.prd);
+    } catch (error) {
+      setPrdError(error instanceof Error ? error.message : "Failed to create PRD");
+    } finally {
+      setPrdInitializing(false);
+    }
+  }
+
+  function handleCreateRalphTask() {
+    resetTaskForm();
+    setTaskNameInput("Ralph Loop");
+    setTaskDescriptionInput("Autonomous PRD agent: completes user stories one at a time.");
+    setTaskTypeInput("goal");
+    setTaskInstructionInput(RALPH_TASK_INSTRUCTION);
+    setTaskGoalInput(RALPH_GOAL_DEFINITION);
+    setTaskIntervalInput(15);
+    setTaskEnabledInput(true);
+    setTaskAutoDisableOnGoalMetInput(true);
+    setTaskHeartbeatInput(false);
+  }
+
   function scheduleStreamRefresh(projectId: string) {
     if (refreshDebounceRef.current !== null) {
       window.clearTimeout(refreshDebounceRef.current);
@@ -5210,12 +5364,15 @@ export function App() {
       setSelectedProjectFileContent(null);
       setProjectFileContentError(null);
       setProjectFileContentLoading(false);
+      setPrdData(null);
+      setPrdError(null);
       return;
     }
 
     void loadTaskDetails(activeProjectId);
     void loadProjectRuntime(activeProjectId);
     void loadProjectSessions(activeProjectId);
+    void loadProjectPrd(activeProjectId);
     projectFileDirectoryRequestsRef.current.clear();
     setProjectFileEntries([]);
     setProjectFilesTruncated(false);
@@ -5796,7 +5953,6 @@ export function App() {
       await createProject({
         name: trimmedProjectName,
         path: targetProjectPath,
-        useRalphLoop: createWithRalph,
       });
       setNewProjectName("");
       setNewProjectRootPath(preferredProjectRoot);
@@ -6337,14 +6493,6 @@ export function App() {
                 placeholder={preferredProjectRoot || "Project root path"}
               />
               {preferredProjectRoot ? <small>Root path: {preferredProjectRoot}</small> : null}
-              <label className="ralph-loop-checkbox-label" style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "8px", fontSize: "14px" }}>
-                <input
-                  type="checkbox"
-                  checked={createWithRalph}
-                  onChange={(e) => setCreateWithRalph(e.target.checked)}
-                />
-                Initialize Ralph Loop
-              </label>
               <div className="mobile-new-project-actions">
                 <button type="button" className="mobile-icon-button" onClick={() => setMobileNewProjectOpen(false)}>
                   Cancel
@@ -6471,16 +6619,6 @@ export function App() {
               >
                 Use suggested
               </button>
-            </div>
-            <div style={{ marginTop: "12px", marginBottom: "8px" }}>
-              <label className="ralph-loop-checkbox-label" style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px" }}>
-                <input
-                  type="checkbox"
-                  checked={createWithRalph}
-                  onChange={(e) => setCreateWithRalph(e.target.checked)}
-                />
-                Initialize with Ralph Loop
-              </label>
             </div>
             <div className="new-project-actions-row">
               <button type="button" className="ghost-button" onClick={() => void handlePickProjectDirectory()}>
@@ -7050,6 +7188,16 @@ export function App() {
                 previewRuns={taskPreviewRuns}
                 runtimeModels={runtimeModels}
                 runtimeAgents={runtimeAgents}
+                ralphPanel={
+                  <RalphLoopPanel
+                    prdData={prdData}
+                    prdLoading={prdLoading}
+                    prdError={prdError}
+                    prdInitializing={prdInitializing}
+                    onInitPrd={handleInitPrd}
+                    onCreateRalphTask={handleCreateRalphTask}
+                  />
+                }
                 onNewTask={resetTaskForm}
                 onSelectTask={(task) => {
                   void handleSelectTask(task);

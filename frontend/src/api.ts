@@ -16,6 +16,8 @@ import type {
   ProjectsSyncResponse,
   SessionDiffEntry,
   TimelineEvent,
+  PrdData,
+  PrdResponse,
 } from "./types";
 
 
@@ -103,7 +105,6 @@ export async function syncProjects(): Promise<ProjectsSyncResponse> {
 export async function createProject(input: {
   name: string;
   path: string;
-  useRalphLoop?: boolean;
 }): Promise<Project> {
   const data = await request<{ project: Project }>("/api/projects", {
     method: "POST",
@@ -429,5 +430,19 @@ export async function previewScheduledTask(
   return request(`/api/projects/${projectId}/tasks/preview`, {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export async function fetchProjectPrd(projectId: string): Promise<PrdResponse> {
+  return request(`/api/projects/${projectId}/prd`);
+}
+
+export async function initProjectPrd(
+  projectId: string,
+  prd?: PrdData
+): Promise<PrdResponse> {
+  return request(`/api/projects/${projectId}/prd`, {
+    method: "PUT",
+    body: JSON.stringify(prd ? { prd } : {}),
   });
 }
