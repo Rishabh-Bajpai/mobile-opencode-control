@@ -226,6 +226,85 @@ class OpenCodeClient:
             return [item for item in data if isinstance(item, dict)]
         return []
 
+    def list_questions(self, directory: str | None = None) -> list[dict]:
+        params = {"directory": directory} if directory else None
+        response = requests.get(
+            f"{self.base_url}/question",
+            params=params,
+            headers=self._headers(),
+            timeout=15,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        return []
+
+    def reply_question(
+        self,
+        request_id: str,
+        answers: list[list[str]],
+        directory: str | None = None,
+    ) -> bool:
+        params = {"directory": directory} if directory else None
+        response = requests.post(
+            f"{self.base_url}/question/{request_id}/reply",
+            params=params,
+            json={"answers": answers},
+            headers=self._headers(),
+            timeout=20,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return bool(data)
+
+    def reject_question(self, request_id: str, directory: str | None = None) -> bool:
+        params = {"directory": directory} if directory else None
+        response = requests.post(
+            f"{self.base_url}/question/{request_id}/reject",
+            params=params,
+            headers=self._headers(),
+            timeout=20,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return bool(data)
+
+    def compact_session(self, session_id: str, directory: str | None = None) -> bool:
+        params = {"directory": directory} if directory else None
+        response = requests.post(
+            f"{self.base_url}/session/{session_id}/compact",
+            params=params,
+            headers=self._headers(),
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.status_code == 204
+
+    def summarize_session(
+        self,
+        session_id: str,
+        provider_id: str,
+        model_id: str,
+        directory: str | None = None,
+        auto: bool = False,
+    ) -> bool:
+        params = {"directory": directory} if directory else None
+        payload = {
+            "providerID": provider_id,
+            "modelID": model_id,
+            "auto": auto,
+        }
+        response = requests.post(
+            f"{self.base_url}/session/{session_id}/summarize",
+            params=params,
+            json=payload,
+            headers=self._headers(),
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.status_code in (200, 204)
+
     def respond_permission(
         self,
         session_id: str,

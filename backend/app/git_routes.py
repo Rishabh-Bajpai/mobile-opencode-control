@@ -1,4 +1,5 @@
 from datetime import timezone
+from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 from git import Repo, exc
@@ -7,6 +8,7 @@ from .auth import auth_required
 from .models import Project
 
 git_bp = Blueprint("git_bp", __name__)
+MAX_UNTRACKED_DIFF_BYTES = 1024 * 1024
 
 
 def _get_request_data():
@@ -41,6 +43,34 @@ def _diff_name_only(repo: Repo, *args: str) -> list[str]:
     except exc.GitCommandError:
         return []
     return _split_lines(output)
+
+
+def _build_untracked_patch(repo: Repo, relative_path: str) -> str | None:
+    """Build a preview patch for an untracked file.
+
+    Returns a unified-diff-style string for text files within the preview size
+    limit, a human-readable message when the file exceeds that limit, or None if
+    the file cannot be read from disk.
+    """
+    path = Path(repo.working_dir, relative_path)
+    try:
+        file_size = path.stat().st_size
+        if file_size > MAX_UNTRACKED_DIFF_BYTES:
+            return (
+                f"File too large to preview ({file_size} bytes). "
+                f"Diff previews are limited to files up to {MAX_UNTRACKED_DIFF_BYTES} bytes."
+            )
+
+        content = path.read_text(errors="replace")
+    except OSError:
+        return None
+
+    lines = content.splitlines()
+    line_count = len(lines)
+    patch_lines = ["--- /dev/null", f"+++ b/{relative_path}", f"@@ -0,0 +1,{line_count} @@"]
+    for line in lines:
+        patch_lines.append(f"+{line}")
+    return "\n".join(patch_lines)
 
 
 def _staged_paths(repo: Repo) -> list[str]:
@@ -534,6 +564,61 @@ def git_pull(project_id: int):
             branch_spec = tracking_branch.remote_head
         remote.pull(branch_spec)
         return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@git_bp.get("/api/projects/<int:project_id>/git/diff")
+@auth_required
+def git_diff(project_id: int):
+    repo, err_resp, err_code = get_repo(project_id)
+    if err_resp:
+        return err_resp, err_code
+
+    try:
+        entries = []
+
+        if repo.head.is_valid():
+            try:
+                staged_output = repo.git.diff("--cached", unified=5)
+                if staged_output.strip():
+                    staged_paths = _staged_paths(repo)
+                    for p in staged_paths:
+                        patch = repo.git.diff("--cached", "--", p, unified=5)
+                        entries.append({
+                            "path": p,
+                            "changeType": "M",
+                            "patch": patch,
+                        })
+            except exc.GitCommandError:
+                pass
+
+            try:
+                changed_paths = _changed_paths(repo)
+                for p in changed_paths:
+                    patch = repo.git.diff("--", p, unified=5)
+                    entries.append({
+                        "path": p,
+                        "changeType": "M",
+                        "patch": patch,
+                    })
+            except exc.GitCommandError:
+                pass
+
+        for u in repo.untracked_files:
+            try:
+                patch = _build_untracked_patch(repo, u)
+                if patch is None:
+                    continue
+                entries.append({
+                    "path": u,
+                    "changeType": "?",
+                    "patch": patch,
+                })
+            except OSError:
+                pass
+
+        return jsonify({"diff": entries})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
