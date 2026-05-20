@@ -572,12 +572,12 @@ export default function GitView({ projectId, mobile = false }: GitViewProps) {
           </div>
         </div>
 
-        <GitSectionTabs value={activeSection} onChange={setActiveSection} />
-
         {notice ? <div className="git-feedback git-feedback-success">{notice}</div> : null}
         {error ? <div className="error">{error}</div> : null}
 
       </section>
+
+      <GitSectionTabs value={activeSection} onChange={setActiveSection} />
 
       <section className={`git-panel-grid git-section-${activeSection}`}>
         {activeSection === "overview" && (

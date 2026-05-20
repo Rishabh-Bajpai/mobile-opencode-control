@@ -1057,7 +1057,8 @@ input {
 
 .git-main-view {
   flex: 1;
-  overflow-y: scroll;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
   background:
     radial-gradient(circle at top, rgba(82, 140, 214, 0.18), transparent 26%),
@@ -1070,7 +1071,10 @@ input {
   min-height: 100%;
   padding: 1rem 1.1rem 1.25rem;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
+  overflow-x: hidden;
+  align-content: start;
 }
 
 .git-card {
@@ -1093,9 +1097,13 @@ input {
 
 .git-hero-card {
   padding: 1.15rem 1.2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.git-hero-card > .git-feedback,
+.git-hero-card > .error {
+  margin-top: 1rem;
 }
 
 .git-panel-card {
@@ -1175,10 +1183,13 @@ input {
 }
 
 .git-section-tabs {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+  width: fit-content;
   max-width: 100%;
+  min-width: 0;
+  justify-self: start;
   border: 1px solid rgba(115, 154, 190, 0.14);
   border-radius: 999px;
   background: rgba(18, 31, 46, 0.68);
@@ -3654,11 +3665,16 @@ input {
   }
 
   .git-section-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     width: 100%;
   }
 
   .git-section-tabs button {
-    flex: 1 0 auto;
+    flex: initial;
+    width: 100%;
+    min-width: 0;
+    padding: 0 0.45rem;
   }
 
   .git-hero-actions,
