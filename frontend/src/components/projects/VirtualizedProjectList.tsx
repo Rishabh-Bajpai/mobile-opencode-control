@@ -140,12 +140,6 @@ export function VirtualizedProjectList({
           );
         })}
       </div>
-      {projects.length > 0 || isLoadingMore ? (
-        <div className="project-list-footer">
-          <span>{isLoadingMore ? "Loading more chats..." : totalLabel}</span>
-          {hasMore && !isLoadingMore ? <small>Scroll for more</small> : null}
-        </div>
-      ) : null}
     </div>
   );
 }

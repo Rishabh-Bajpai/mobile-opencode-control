@@ -538,24 +538,6 @@ input {
   line-height: 1.35;
 }
 
-.project-list-footer {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  padding: 0.42rem 0.55rem 0.62rem;
-  background: linear-gradient(180deg, rgba(23, 33, 43, 0), rgba(23, 33, 43, 0.9));
-}
-
-.project-list-footer small {
-  font-size: 0.72rem;
-}
-
 .project-virtual-canvas {
   position: relative;
   width: 100%;
@@ -4074,6 +4056,13 @@ input {
   font-size: 0.74rem;
 }
 
+.agent-activity-summary strong {
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--text-main);
+}
+
 .agent-activity-body {
   padding: 0 0.55rem 0.55rem;
   display: grid;
@@ -4380,15 +4369,6 @@ input {
 
   .project-item.active {
     background: rgba(45, 93, 145, 0.38);
-  }
-
-  .mobile-project-list-wrap .project-list-footer {
-    position: static;
-    padding: 0.46rem 0.62rem 0.68rem;
-    background: rgba(19, 29, 40, 0.98);
-    border-top: 1px solid rgba(82, 114, 144, 0.12);
-    backdrop-filter: none;
-    z-index: 3;
   }
 
   .project-row strong {
