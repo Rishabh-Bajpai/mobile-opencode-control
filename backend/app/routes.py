@@ -2040,8 +2040,8 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
 
         try:
             prd_path = _resolve_project_relative_path(project, "prd.json")
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
+        except ValueError:
+            return jsonify({"error": "Invalid project path"}), 400
 
         if not prd_path.exists():
             return jsonify({"prd": None})
@@ -2073,8 +2073,8 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
 
         try:
             prd_path = _resolve_project_relative_path(project, "prd.json")
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
+        except ValueError:
+            return jsonify({"error": "Invalid project path"}), 400
 
         try:
             prd_path.write_text(json.dumps(prd_content, indent=2), encoding="utf-8")
