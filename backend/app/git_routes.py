@@ -538,6 +538,65 @@ def git_pull(project_id: int):
         return jsonify({"error": str(e)}), 500
 
 
+@git_bp.get("/api/projects/<int:project_id>/git/diff")
+@auth_required
+def git_diff(project_id: int):
+    repo, err_resp, err_code = get_repo(project_id)
+    if err_resp:
+        return err_resp, err_code
+
+    try:
+        entries = []
+
+        if repo.head.is_valid():
+            try:
+                staged_output = repo.git.diff("--cached", unified=5)
+                if staged_output.strip():
+                    staged_paths = _staged_paths(repo)
+                    for p in staged_paths:
+                        patch = repo.git.diff("--cached", "--", p, unified=5)
+                        entries.append({
+                            "path": p,
+                            "changeType": "M",
+                            "patch": patch,
+                        })
+            except exc.GitCommandError:
+                pass
+
+            try:
+                changed_paths = _changed_paths(repo)
+                for p in changed_paths:
+                    patch = repo.git.diff("--", p, unified=5)
+                    entries.append({
+                        "path": p,
+                        "changeType": "M",
+                        "patch": patch,
+                    })
+            except exc.GitCommandError:
+                pass
+
+        for u in repo.untracked_files:
+            try:
+                from pathlib import Path
+                content = Path(repo.working_dir, u).read_text(errors="replace")
+                lines = content.splitlines()
+                line_count = len(lines)
+                patch_lines = ["--- /dev/null", f"+++ b/{u}", f"@@ -0,0 +1,{line_count} @@"]
+                for line in lines:
+                    patch_lines.append(f"+{line}")
+                entries.append({
+                    "path": u,
+                    "changeType": "?",
+                    "patch": "\n".join(patch_lines),
+                })
+            except OSError:
+                pass
+
+        return jsonify({"diff": entries})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @git_bp.post("/api/projects/<int:project_id>/git/remote")
 @auth_required
 def git_remote(project_id: int):

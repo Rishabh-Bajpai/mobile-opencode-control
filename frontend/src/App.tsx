@@ -52,6 +52,7 @@ import {
   updateNotificationSettings,
   updateProjectRuntime,
   updateProjectSession,
+  apiGitDiff,
 } from "./api";
 
 import type {
@@ -70,6 +71,7 @@ import type {
   ScheduledTask,
   ScheduledTaskRun,
   SessionDiffEntry,
+  GitDiffEntry,
   TimelineEvent,
 } from "./types";
 
@@ -162,6 +164,7 @@ export function App() {
   const [transcribingAudio, setTranscribingAudio] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [diffEntries, setDiffEntries] = useState<SessionDiffEntry[]>([]);
+const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
   const [projectFileEntries, setProjectFileEntries] = useState<ProjectFileEntry[]>([]);
   const [projectFilesTruncated, setProjectFilesTruncated] = useState(false);
   const [projectFilesLoading, setProjectFilesLoading] = useState(false);
@@ -1681,14 +1684,20 @@ export function App() {
     }
   }
 
-  async function loadDiff(projectId: string) {
-    try {
-      const diffResult = await fetchDiff(projectId);
-      setDiffEntries(diffResult.diff);
-    } catch {
-      setDiffEntries([]);
-    }
+async function loadDiff(projectId: string) {
+  try {
+    const diffResult = await fetchDiff(projectId);
+    setDiffEntries(diffResult.diff);
+  } catch {
+    setDiffEntries([]);
   }
+  try {
+    const gitResult = await apiGitDiff(projectId);
+    setGitDiffEntries(gitResult);
+  } catch {
+    setGitDiffEntries([]);
+  }
+}
 
   async function loadPendingApprovals(projectId: string) {
     try {
@@ -4275,7 +4284,7 @@ export function App() {
               <small>Fixture preview for heavy-change sessions before expanding the detailed diff panel.</small>
             </div>
           ) : null}
-          <DiffPanel diff={effectiveDiffEntries} />
+          <DiffPanel sessionDiff={effectiveDiffEntries} gitDiff={gitDiffEntries} />
           {unreadEntryId ? (
             <button
               type="button"

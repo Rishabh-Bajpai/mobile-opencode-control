@@ -17,6 +17,7 @@ import type {
   ScheduledTask,
   ProjectsSyncResponse,
   SessionDiffEntry,
+  GitDiffEntry,
   TimelineEvent,
   PrdData,
   PrdResponse,
@@ -655,6 +656,10 @@ export function apiGitPull(projectId: string, remote: string) {
     method: "POST",
     body: JSON.stringify({ remote }),
   });
+}
+
+export function apiGitDiff(projectId: string) {
+  return request<GitDiffResponse>(`/api/projects/${projectId}/git/diff`).then(r => r.diff);
 }
 
 export function apiGitRemote(projectId: string, name: string, url: string) {

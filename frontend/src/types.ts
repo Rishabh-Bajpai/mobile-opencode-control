@@ -132,6 +132,53 @@ export interface SessionDiffEntry {
   [key: string]: unknown;
 }
 
+export interface GitDiffEntry {
+  path: string;
+  changeType: "A" | "D" | "M" | "R" | "?";
+  patch: string;
+}
+
+export interface GitDiffResponse {
+  diff: GitDiffEntry[];
+}
+
+export interface ToolPart {
+  type: "tool";
+  tool: string;
+  callID: string;
+  state: {
+    status: "completed" | "running" | "error";
+    input?: Record<string, unknown>;
+    output?: string;
+    metadata?: { truncated?: boolean; matches?: number; [key: string]: unknown };
+    title?: string;
+    time?: { start: number; end: number };
+  };
+  id: string;
+  sessionID: string;
+  messageID: string;
+}
+
+export interface PatchPart {
+  type: "patch";
+  hash: string;
+  files: string[];
+  id: string;
+  sessionID: string;
+  messageID: string;
+}
+
+export interface FilePart {
+  type: "file";
+  mime: string;
+  filename: string;
+  url: string;
+  source?: Record<string, unknown>;
+  id: string;
+  sessionID: string;
+  messageID: string;
+}
+
 export interface ProjectFileEntry {
   path: string;
   name: string;
