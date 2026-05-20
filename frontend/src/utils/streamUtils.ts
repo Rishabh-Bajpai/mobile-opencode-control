@@ -200,6 +200,7 @@ export type StreamEventClassification = {
   hasMessageUpdate: boolean;
   hasQuestionUpdate: boolean;
   hasApprovalUpdate: boolean;
+  hasPartUpdate: boolean;
   isHeartbeat: boolean;
   rawEventType: string | null;
 };
@@ -209,6 +210,7 @@ export function classifyStreamEvent(data: string): StreamEventClassification {
     hasMessageUpdate: false,
     hasQuestionUpdate: false,
     hasApprovalUpdate: false,
+    hasPartUpdate: false,
     isHeartbeat: false,
     rawEventType: null,
   };
@@ -228,6 +230,8 @@ export function classifyStreamEvent(data: string): StreamEventClassification {
         result.hasApprovalUpdate = true;
       } else if (eventType === "question.asked" || eventType === "question.replied" || eventType === "question.rejected") {
         result.hasQuestionUpdate = true;
+      } else if (eventType === "message.part.updated") {
+        result.hasPartUpdate = true;
       } else if (
         eventType === "text.delta" ||
         eventType === "text.ended" ||
@@ -266,4 +270,42 @@ export function classifyStreamEvent(data: string): StreamEventClassification {
   }
 
   return result;
+}
+
+export type MessagePartPayload = {
+  sessionID: string | null;
+  messageID: string | null;
+  partID: string | null;
+  partType: string | null;
+  text: string | null;
+};
+
+export function extractMessagePartText(eventLines: string[]): MessagePartPayload | null {
+  const payloadLines = eventLines
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .filter(Boolean);
+
+  if (payloadLines.length === 0) {
+    return null;
+  }
+
+  const payload = payloadLines.join("\n");
+  try {
+    const parsed = JSON.parse(payload) as Record<string, unknown>;
+    const part = parsed.part && typeof parsed.part === "object" ? parsed.part as Record<string, unknown> : null;
+    if (!part) {
+      return null;
+    }
+
+    const sessionID = typeof parsed.sessionID === "string" ? parsed.sessionID : null;
+    const messageID = typeof part.messageID === "string" ? part.messageID : null;
+    const partID = typeof part.id === "string" ? part.id : null;
+    const partType = typeof part.type === "string" ? part.type : null;
+    const text = typeof part.text === "string" ? part.text : null;
+
+    return { sessionID, messageID, partID, partType, text };
+  } catch {
+    return null;
+  }
 }

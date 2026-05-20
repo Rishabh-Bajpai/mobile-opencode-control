@@ -15,7 +15,7 @@
 | #3 Notifications | ✅ **COMPLETE** | None — routing logic verified correct |
 | #2 Project ordering | ✅ **COMPLETE** | None |
 | #6 Multi-session | ✅ **PHASE 1 COMPLETE** | Custom dropdown replaced session tabs; Phase 2-3 not started |
-| #7 Streaming | ❌ **NOT STARTED** | No `text.delta`/`text.ended` parsing, no incremental updates, no heartbeat handling |
+| #7 Streaming | ✅ **STEP 1-2 COMPLETE** | Event classification + heartbeat + incremental text delta updates done |
 
 ---
 
@@ -41,7 +41,7 @@
 | **P1** | #1 Question features | ~400 lines, 5 files | Enables interactive AI loop | None | ✅ Complete |
 | **P1** | #2 Project ordering | ~30 lines, 2 files | UX polish | None | ✅ Complete |
 | **P1** | #6 Multi-session | ~200 lines, 3 files | Major UX improvement | #5 (done) | ✅ Phase 1 done |
-| **P2** | #7 Streaming improvements | ~400 lines, 4 files | Performance/real-time fix | #1 (done) | ❌ Not started |
+| **P2** | #7 Streaming improvements | ~400 lines, 4 files | Performance/real-time fix | #1 (done) | ✅ Step 1-2 done |
 
 ---
 
@@ -246,7 +246,7 @@ Active project always appears first, regardless of `last_activity_at`. All rende
 ### Files changed
 - `backend/app/routes/projects.py` — ✅ done
 - `backend/app/routes/sessions.py` — ✅ done
-- `frontend/src/App.tsx` or project list component — ❌ pending
+- `frontend/src/App.tsx` — ✅ done (sortedVisibleProjects useMemo)
 
 ---
 
@@ -279,71 +279,36 @@ Active project always appears first, regardless of `last_activity_at`. All rende
 
 ---
 
-## ❌ Issue #7 — Streaming Improvements (P2) — NOT STARTED
+## ✅ Issue #7 — Streaming Improvements (P2) — STEP 1-2 COMPLETE
 
-**Status: ❌ NOT STARTED — question.asked is parsed (from #1), but text events and incremental updates are not**
+**Status: ✅ STEP 1-2 COMPLETE — event classification, heartbeat handling, and incremental text delta updates all implemented**
 
-### Root Cause
+### What's Implemented
 
-The SSE stream is used as a **poll signal** rather than as the actual data source. The frontend ignores most event types and triggers debounced REST reloads (700ms) for every event. This adds latency and race conditions.
+**Step 1 — Event classification + heartbeat** (done previously):
+- `classifyStreamEvent()` in `streamUtils.ts:207` parses all SSE event types into typed flags
+- Heartbeat stale-detection timer (20s) with `heartbeatTimerRef` — reconnects if no heartbeat for 20s
+- Uses `streamStatusRef` to avoid stale closures in timeout callbacks
 
-### Current State
+**Step 2 — Incremental text delta updates** (just done):
+- `extractMessagePartText()` in `streamUtils.ts` parses `message.part.updated` events to extract TextPart content (sessionID, messageID, partID, text)
+- `isTextDelta` flag added to `StreamEventClassification` — set when `message.part.updated` contains a text part
+- `lastAssistantMessageIdBySessionRef` tracks the last assistant message ID per session (updated on every `loadMessages`)
+- In the SSE handler, text delta events now update the last assistant message **in-place** — no 700ms debounce, no full reload
+- `scheduleStreamRefresh` is now only called for non-text message events (tool calls, message.created, message.completed, etc.)
 
-- `question.asked` events **are** parsed (part of Issue #1 implementation)
-- All other event types (`text.delta`, `text.ended`, `prompted`, etc.) trigger a 700ms debounced full reload via `scheduleStreamRefresh`
-- No heartbeat handling
+### How incremental updates work
 
-### Reference Implementation
-
-OpenCode's SSE stream (`packages/opencode/src/server/routes/instance/httpapi/handlers/event.ts`):
-- Subscribes to **all** bus events via `bus.subscribeAll()`
-- Pushes typed JSON events: `text.delta`, `tool.called`, `question.asked`, etc.
-- 10-second heartbeat to keep connection alive
-
-### Fix
-
-**1. Parse all event types in the frontend** (`frontend/src/App.tsx` `stream.onmessage` handler):
-```typescript
-stream.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  const sessionId = data.sessionId;
-  const rawEvents: string[] = data.event;
-
-  let hasMessageUpdate = false;
-  let hasQuestionUpdate = false;
-
-  for (const raw of rawEvents) {
-    if (raw.startsWith("event: ")) {
-      const eventType = raw.slice(7).trim();
-      if (eventType.includes("permission")) {
-        // existing permission handling
-      } else if (eventType === "question.asked") {
-        hasQuestionUpdate = true;
-      } else if (["text.delta", "text.ended", "prompted"].includes(eventType)) {
-        hasMessageUpdate = true;
-      }
-    }
-  }
-
-  if (hasQuestionUpdate) loadPendingQuestions(activeProjectId);
-  if (hasMessageUpdate) scheduleStreamRefresh(activeProjectId);
-};
-```
-
-**2. Add incremental message update** instead of full reload:
-For events like `text.delta`, update the last assistant message's text in-place rather than reloading all messages. This requires:
-- Tracking the last assistant message ID per session
-- Appending `delta` text to it
-- Using `text.ended` events to mark completion
-
-**3. Add heartbeat handling** — the OpenCode SSE sends heartbeats every 10s; use them to detect stale connections.
-
-**Note:** Full incremental update (step 2) is a significant refactor. Step 1 alone (better event classification) is already valuable.
+1. `message.part.updated` event arrives with a TextPart
+2. `classifyStreamEvent` detects it and sets `isTextDelta = true` (not `hasMessageUpdate`)
+3. `extractMessagePartText` parses the part data (messageID, partID, text)
+4. The handler finds the tracked assistant message by ID and updates its `text` field in-place
+5. The part is also updated in the `parts` array (matched by partID, or appended if new)
+6. Non-text events (tool calls, etc.) still trigger `scheduleStreamRefresh` for full reload
 
 ### Files changed
-- `frontend/src/App.tsx` — stream event parsing, incremental update logic, heartbeat handling
-- `frontend/src/utils/streamUtils.ts` — event type classification utilities
-- `backend/app/routes/messages.py` — possible minor stream improvements (forward heartbeat metadata)
+- `frontend/src/utils/streamUtils.ts` — `extractMessagePartText()`, `MessagePartPayload` type, `isTextDelta` flag in classification
+- `frontend/src/App.tsx` — `lastAssistantMessageIdBySessionRef`, text delta handler in SSE onmessage, loadMessages tracking
 
 ---
 
@@ -402,6 +367,6 @@ For events like `text.delta`, update the last assistant message's text in-place 
 | #3 Notifications | 3 | 2 | 1 | ✅ Complete | 0 |
 | #2 Project order | 1 | 2 | 0 | ✅ Complete | 0 |
 | #6 Multi-session | 2 | 0 | 0 | ✅ Phase 1 | ~600 (Phase 2-3) |
-| #7 Streaming | 2 | 1 | 0 | ❌ Not started | ~400 |
+| #7 Streaming | 2 | 0 | 1 | ✅ Step 1-2 | 0 |
 
-**Total remaining: ~1000 lines (Phase 2-3 of #6 + all of #7)**
+**Total remaining: ~600 lines (Phase 2-3 of #6 only)**

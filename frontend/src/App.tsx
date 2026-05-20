@@ -81,7 +81,7 @@ import { formatCompactSessionId, formatElapsedShort, formatSessionOptionLabel, f
 import { buildGroupedTimelineEntries, buildMessageStableKey, getNonTextParts, timelineEventToTaskRun } from "./utils/messageUtils";
 import { buildProjectPathFromRoot, extractRootFromProjectPath, getSuggestedProjectRoot, normalizeProjectRootPath, projectInitials } from "./utils/projectUtils";
 import { toDateInputPartsInTimezone, toDateTimeInputValueInTimezone, toIsoInTimezone } from "./utils/taskUtils";
-import { parseApprovalFromStreamData, parseQuestionFromStreamData, classifyStreamEvent } from "./utils/streamUtils";
+import { parseApprovalFromStreamData, parseQuestionFromStreamData, classifyStreamEvent, extractMessagePartText } from "./utils/streamUtils";
 import { buildInitialQuestionDraft, buildQuestionReplyAnswers, getManualInstallMessage, inferTelemetryCategory, markerTimeWindowMs, nextReconnectDelayMs, parseSlashCommand, removeQuestionFromList, resolveDevFixtureMode, schedulerHeartbeatState, scrollEntryIntoView } from "./utils/miscUtils";
 import { LoginView } from "./components/auth/LoginView";
 import { AgentActivityCard } from "./components/chat/AgentActivityCard";
@@ -352,6 +352,8 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
   const heartbeatTimerRef = useRef<number | null>(null);
   const streamStatusRef = useRef(streamStatus);
   streamStatusRef.current = streamStatus;
+  const lastAssistantMessageIdBySessionRef = useRef<Record<string, string>>({});
+  const textDeltaScrollRef = useRef(0);
 
   function addTelemetryMarker(event: string, payload?: Record<string, unknown>) {
     const marker: TelemetryMarker = {
@@ -1669,6 +1671,14 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
       }
       setMessages(messageResult.messages);
       setTaskTimelineEvents(messageResult.timelineEvents ?? []);
+      const resultSessionId = messageResult.sessionId;
+      const lastAssistant = [...messageResult.messages].reverse().find((m) => m.role === "assistant");
+      if (lastAssistant) {
+        lastAssistantMessageIdBySessionRef.current = {
+          ...lastAssistantMessageIdBySessionRef.current,
+          [resultSessionId]: lastAssistant.id,
+        };
+      }
     } catch (error) {
       if (requestId !== messageLoadRequestRef.current) {
         return;
@@ -2320,7 +2330,51 @@ async function loadDiff(projectId: string) {
             return next;
           });
         }
-        if (classification.hasMessageUpdate) {
+        let needsFullRefresh = classification.hasMessageUpdate;
+        if (classification.hasPartUpdate) {
+          const eventLines = ((): string[] => {
+            try {
+              const wrapper = JSON.parse(event.data) as { event?: string[] };
+              return Array.isArray(wrapper.event) ? wrapper.event : [];
+            } catch {
+              return [];
+            }
+          })();
+          const partData = extractMessagePartText(eventLines);
+          if (partData && partData.text != null && partData.messageID && partData.partType === "text") {
+            const trackedId = lastAssistantMessageIdBySessionRef.current[activeSessionId ?? ""];
+            setMessages((current) => {
+              const targetId = trackedId || partData.messageID;
+              const msgIndex = current.findIndex((m) => m.id === targetId);
+              if (msgIndex < 0) {
+                return current;
+              }
+              const existing = current[msgIndex];
+              const updatedParts = [...existing.parts];
+              const textPartIndex = updatedParts.findIndex(
+                (p) => typeof p === "object" && p !== null && p.type === "text" && p.id === partData.partID
+              );
+              if (textPartIndex >= 0) {
+                updatedParts[textPartIndex] = { ...updatedParts[textPartIndex], text: partData.text };
+              } else if (partData.partID) {
+                updatedParts.push({ type: "text", id: partData.partID, text: partData.text });
+              } else {
+                updatedParts.push({ type: "text", text: partData.text });
+              }
+              const allTextParts = updatedParts
+                .filter((p) => typeof p === "object" && p !== null && p.type === "text" && typeof p.text === "string")
+                .map((p) => (p as Record<string, string>).text);
+              const newText = allTextParts.join("\n").trim();
+              const next = [...current];
+              next[msgIndex] = { ...existing, text: newText, parts: updatedParts };
+              textDeltaScrollRef.current += 1;
+              return next;
+            });
+          } else {
+            needsFullRefresh = true;
+          }
+        }
+        if (needsFullRefresh) {
           scheduleStreamRefresh(activeProjectId);
         }
       };
@@ -2638,6 +2692,17 @@ async function loadDiff(projectId: string) {
     body.scrollTop += nextTop - pendingAnchor.top;
     pendingScrollAnchorRef.current = null;
   }, [isChatNearBottom, renderedTimelineEntries]);
+
+  useLayoutEffect(() => {
+    if (!isChatNearBottom) {
+      return;
+    }
+    const body = chatBodyRef.current;
+    if (!body) {
+      return;
+    }
+    body.scrollTop = Math.max(0, body.scrollHeight - body.clientHeight);
+  }, [isChatNearBottom, textDeltaScrollRef.current]);
 
   useEffect(() => {
     const body = chatBodyRef.current;
