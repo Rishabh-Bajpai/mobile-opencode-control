@@ -99,7 +99,6 @@ import { ScheduledTaskPanel } from "./components/tasks/ScheduledTaskPanel";
 import { InstallControls } from "./components/toolbar/InstallControls";
 import { NotificationControls } from "./components/toolbar/NotificationControls";
 import { RuntimeControls } from "./components/toolbar/RuntimeControls";
-import { CapabilityWarning } from "./components/ui/CapabilityWarning";
 import { CommandPickerModal } from "./components/ui/CommandPickerModal";
 import { FixtureBanner } from "./components/ui/FixtureBanner";
 import { QuestionCard } from "./components/ui/QuestionCard";
@@ -4266,7 +4265,6 @@ async function loadDiff(projectId: string) {
               />
             ) : null}
           </div>
-          <CapabilityWarning commands={availableCommands} />
           {fixtureMode === "no-project" ? (
             <ChatStateCard
               title="Select a project to start chatting."

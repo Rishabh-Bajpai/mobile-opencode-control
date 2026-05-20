@@ -333,18 +333,6 @@ input {
   overflow: auto;
 }
 
-.project-telemetry-wrap {
-  border-bottom: 1px solid var(--border);
-}
-
-.project-telemetry-wrap > summary {
-  cursor: pointer;
-  padding: 0.48rem 0.65rem;
-  color: var(--text-muted);
-  font-size: 0.77rem;
-  user-select: none;
-}
-
 .project-telemetry small {
   color: var(--text-muted);
   font-size: 0.74rem;
@@ -453,52 +441,6 @@ input {
 .telemetry-preview-empty {
   color: var(--text-muted);
   font-size: 0.72rem;
-}
-
-.scheduler-card {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.4rem 0.45rem;
-  display: grid;
-  gap: 0.2rem;
-  background: rgba(17, 28, 41, 0.7);
-  outline: none;
-}
-
-.scheduler-card.pulse {
-  animation: schedulerPulse 1.2s ease-out;
-}
-
-@keyframes schedulerPulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(95, 168, 255, 0.55);
-  }
-  100% {
-    box-shadow: 0 0 0 12px rgba(95, 168, 255, 0);
-  }
-}
-
-.scheduler-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.35rem;
-}
-
-.scheduler-head button {
-  min-height: 24px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: rgba(14, 23, 34, 0.95);
-  color: var(--text-main);
-  font-size: 0.72rem;
-  cursor: pointer;
-  padding: 0 0.45rem;
-}
-
-.scheduler-head button:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
 }
 
 .project-list {
@@ -959,25 +901,6 @@ input {
   min-width: 0;
 }
 
-.scheduler-card-desktop {
-  grid-column: 1 / -1;
-  padding: 0;
-}
-
-.scheduler-card-desktop .task-panel {
-  margin: 0;
-  max-width: none;
-  border: 0;
-  border-radius: 16px;
-  background: transparent;
-}
-
-.scheduler-card-desktop .task-panel[open] .task-panel-content {
-  max-height: min(56vh, 34rem);
-  overflow: auto;
-  scrollbar-gutter: stable;
-}
-
 .commands-card {
   min-height: 100%;
 }
@@ -1137,11 +1060,6 @@ input {
   align-content: start;
 }
 
-.git-card {
-  display: grid;
-  gap: 0.75rem;
-}
-
 .git-surface-card {
   border: 1px solid rgba(125, 169, 214, 0.18);
   background:
@@ -1286,14 +1204,6 @@ input {
   align-items: center;
 }
 
-.git-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
 .git-feedback {
   border-radius: 12px;
   padding: 0.55rem 0.7rem;
@@ -1395,12 +1305,6 @@ input {
   border-color: rgba(95, 168, 255, 0.34);
   background: rgba(25, 52, 82, 0.56);
   color: #d8ebff;
-}
-
-.git-content-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-  gap: 0.9rem;
 }
 
 .git-panel-head {
@@ -2713,27 +2617,6 @@ input {
   background: transparent;
 }
 
-.capability-warning {
-  max-width: 52rem;
-  margin: 0 auto 0.55rem;
-  border: 1px solid rgba(255, 205, 86, 0.4);
-  border-radius: 12px;
-  background: rgba(74, 56, 16, 0.65);
-  padding: 0.55rem 0.7rem;
-}
-
-.capability-warning strong,
-.capability-warning p {
-  margin: 0;
-}
-
-.capability-warning p {
-  margin-top: 0.25rem;
-  color: #ffe9bc;
-  font-size: 0.8rem;
-  line-height: 1.35;
-}
-
 .command-help-toggle {
   cursor: pointer;
   padding: 0;
@@ -2861,57 +2744,6 @@ input {
   color: var(--text-muted);
   font-size: 0.8rem;
   line-height: 1.35;
-}
-
-.task-panel {
-  max-width: 76rem;
-  margin: 0.7rem auto 0;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: rgba(23, 33, 43, 0.86);
-  min-width: 0;
-}
-
-.task-panel summary {
-  cursor: pointer;
-  padding: 0.5rem 0.65rem;
-  font-size: 0.84rem;
-  user-select: none;
-  overflow-wrap: anywhere;
-}
-
-.task-panel-content {
-  border-top: 1px solid var(--border);
-  padding: 0.6rem;
-  display: grid;
-  gap: 0.55rem;
-  min-width: 0;
-  align-content: start;
-}
-
-.task-panel-content label {
-  display: grid;
-  gap: 0.25rem;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  min-width: 0;
-}
-
-.task-panel-content textarea,
-.task-panel-content input,
-.task-panel-content select {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #0f1b29;
-  color: var(--text-main);
-  padding: 0.45rem 0.55rem;
-  width: 100%;
-  min-width: 0;
-}
-
-.task-panel-content textarea {
-  min-height: 80px;
-  resize: vertical;
 }
 
 .task-inline-fields {
@@ -3080,16 +2912,6 @@ input {
     max-height: min(68vh, 52rem);
     overflow: auto;
     padding-right: 0.2rem;
-  }
-
-  .task-panel-content {
-    max-height: min(56vh, 34rem);
-    overflow: auto;
-    padding-right: 0.35rem;
-  }
-
-  .scheduler-card-desktop .task-panel-content {
-    max-height: min(56vh, 34rem);
   }
 }
 
@@ -3639,8 +3461,7 @@ input {
 
 .message-rich-text p,
 .message-rich-text ul,
-.message-rich-text pre,
-.message-heading {
+.message-rich-text pre {
   margin: 0;
 }
 
@@ -3778,25 +3599,6 @@ input {
   font-size: 0.9em;
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-
-.message-code-block {
-  border: 1px solid rgba(118, 153, 186, 0.18);
-  border-radius: 10px;
-  background: rgba(10, 18, 28, 0.68);
-  padding: 0.62rem;
-  overflow: auto;
-}
-
-.message-code-block code {
-  background: transparent;
-  padding: 0;
-  border-radius: 0;
-}
-
-.message-heading {
-  font-size: 0.95rem;
-  line-height: 1.25;
 }
 
 .speak-button {
@@ -4492,9 +4294,7 @@ input {
   .messages-list,
   .approval-list,
   .diff-panel,
-  .project-files-panel,
-  .task-panel,
-  .capability-warning {
+  .project-files-panel {
     max-width: none;
   }
 
@@ -4770,8 +4570,7 @@ input {
     align-content: start;
   }
 
-  .mobile-settings-screen .toolbar-card,
-  .mobile-settings-screen .task-panel {
+  .mobile-settings-screen .toolbar-card {
     margin: 0;
     min-width: 0;
     border-radius: 20px;
@@ -4803,41 +4602,23 @@ input {
     min-width: 0;
   }
 
-  .mobile-settings-screen .task-inline-fields,
-  .mobile-settings-screen .task-panel .task-inline-fields {
+  .mobile-settings-screen .task-inline-fields {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .mobile-settings-screen .task-actions,
-  .mobile-settings-screen .task-panel .task-actions {
+  .mobile-settings-screen .task-actions {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .mobile-settings-screen .task-actions button,
-  .mobile-settings-screen .task-panel .task-actions button {
+  .mobile-settings-screen .task-actions button {
     width: 100%;
     min-width: 0;
     flex-basis: auto;
   }
 
-  .mobile-settings-screen .task-status-badge,
-  .mobile-settings-screen .task-panel .task-status-badge {
+  .mobile-settings-screen .task-status-badge {
     width: fit-content;
-    max-width: 100%;
-  }
-
-  .mobile-settings-screen .task-panel-content {
-    padding: 0.1rem 0;
-  }
-
-  .mobile-settings-screen .task-panel-content textarea {
-    min-height: 8.5rem;
-  }
-
-  .mobile-settings-screen .task-panel-content input,
-  .mobile-settings-screen .task-panel-content select,
-  .mobile-settings-screen .task-panel-content textarea {
     max-width: 100%;
   }
 

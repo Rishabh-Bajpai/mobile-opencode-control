@@ -487,7 +487,6 @@ Configure in **Settings** → **Notifications** or via the toolbar notification 
 - To use PostgreSQL, set `DATABASE_URL` in `.env`.
 - `.env`, `.runtime`, local screenshots, and test captures are ignored by default.
 - Refresh the page if you see stale connection or host-allow errors after a config change.
-- Up-to-date status at [tasks.md](./tasks.md).
 
 ## Roadmap
 
