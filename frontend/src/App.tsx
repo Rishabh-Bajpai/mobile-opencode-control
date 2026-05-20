@@ -1000,7 +1000,10 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
   const contextUsage = useMemo(() => {
     const lastAssistant = messages.findLast((m) => m.role === "assistant" && m.tokens);
     if (!lastAssistant?.tokens) return null;
-    const selectedModelOption = runtimeModels.find((m) => m.id === selectedModel) ?? null;
+    const selectedModelOption = runtimeModels.find((m) => m.id === selectedModel)
+      ?? runtimeModels.find((m) => m.id === globalDefaultModel)
+      ?? runtimeModels.find((m) => m.isDefault)
+      ?? null;
     const contextLimit = selectedModelOption?.contextLimit ?? 0;
     if (!contextLimit) return null;
     const tokens = lastAssistant.tokens;
@@ -1012,7 +1015,7 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
       percentage,
       color: percentage >= 90 ? "red" : percentage >= 70 ? "yellow" : "green",
     };
-  }, [messages, selectedModel, runtimeModels]);
+  }, [messages, selectedModel, globalDefaultModel, runtimeModels]);
   const showMobileProjectList = isMobileViewport && (mobileProjectListOpen || !activeProjectId);
   const filteredCommandList = useMemo(() => {
     const query = commandSearch.trim().toLowerCase();
