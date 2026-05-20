@@ -1008,7 +1008,7 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
     [projectSessions, activeSessionId]
   );
   const contextUsage = useMemo(() => {
-    const lastAssistant = messages.findLast((m) => m.role === "assistant" && m.tokens);
+    const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant" && message.tokens);
     if (!lastAssistant?.tokens) return null;
     const selectedModelOption = runtimeModels.find((m) => m.id === selectedModel)
       ?? runtimeModels.find((m) => m.id === globalDefaultModel)

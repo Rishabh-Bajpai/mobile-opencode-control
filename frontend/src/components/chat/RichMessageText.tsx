@@ -5,13 +5,13 @@ import type { Components } from "react-markdown";
 
 const components: Components = {
   table: ({ children, ...props }) => (
-    <div className="table-wrapper" {...props}>
-      <table>{children}</table>
+    <div className="table-wrapper">
+      <table {...props}>{children}</table>
     </div>
   ),
   pre: ({ children, ...props }) => (
-    <div className="code-wrapper" {...props}>
-      <pre>{children}</pre>
+    <div className="code-wrapper">
+      <pre {...props}>{children}</pre>
     </div>
   ),
 };

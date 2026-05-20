@@ -29,8 +29,14 @@ export function QuestionCard({
         {(question.questions ?? []).map((info, questionIndex) => {
           const selectedValues = draft.optionSelections[questionIndex] ?? [];
           const customValue = draft.customValues[questionIndex] ?? "";
+          const questionKey = [
+            question.id,
+            info.header,
+            info.question,
+            info.options.map((option) => option.label).join("|"),
+          ].join(":");
           return (
-            <div key={`${question.id}:${questionIndex}`} className="question-block">
+            <div key={questionKey} className="question-block">
               <div className="question-block-head">
                 <strong>{info.header}</strong>
                 <small>{info.question}</small>

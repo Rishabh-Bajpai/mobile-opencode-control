@@ -31,6 +31,14 @@ def configure(app_instance, settings_instance, opencode_client_instance, schedul
 
 
 def _current_utc_now():
+    try:
+        from .. import routes as routes_module
+
+        legacy_utc_now = getattr(routes_module, "_utc_now", None)
+        if callable(legacy_utc_now):
+            return legacy_utc_now()
+    except Exception:
+        pass
     return _utc_now()
 
 

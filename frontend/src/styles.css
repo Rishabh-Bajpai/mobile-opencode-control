@@ -2483,7 +2483,7 @@ input {
   color: #9b59b6;
 }
 
-.diff-change-type-? {
+.diff-change-type-untracked {
   background: rgba(95, 168, 255, 0.15);
   color: #5fa8ff;
 }

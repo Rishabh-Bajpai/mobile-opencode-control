@@ -20,5 +20,6 @@ if _module is None:
 
 api_bp = _module.api_bp
 register_api_routes = _module.register_api_routes
+_utc_now = _module._utc_now
 
-__all__ = ["api_bp", "register_api_routes"]
+__all__ = ["api_bp", "register_api_routes", "_utc_now"]

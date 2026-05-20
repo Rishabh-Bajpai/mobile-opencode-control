@@ -1,6 +1,10 @@
 import React, { useState } from "react";
 import type { SessionDiffEntry, GitDiffEntry } from "../../types";
 
+function changeTypeClassName(changeType: GitDiffEntry["changeType"]) {
+  return changeType === "?" ? "untracked" : changeType;
+}
+
 function DiffLine({ line }: { line: string }) {
   const cls = line.startsWith("+")
     ? "diff-line-add"
@@ -104,7 +108,7 @@ export function DiffPanel({
               <details key={entry.path} className="diff-file-entry">
                 <summary className="diff-file-header">
                   <span className="diff-file-path">{entry.path}</span>
-                  <span className={`diff-change-type diff-change-type-${entry.changeType}`}>
+                  <span className={`diff-change-type diff-change-type-${changeTypeClassName(entry.changeType)}`}>
                     {entry.changeType}
                   </span>
                 </summary>

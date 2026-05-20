@@ -1,4 +1,5 @@
 from datetime import timezone
+from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 from git import Repo, exc
@@ -7,6 +8,7 @@ from .auth import auth_required
 from .models import Project
 
 git_bp = Blueprint("git_bp", __name__)
+MAX_UNTRACKED_DIFF_BYTES = 1024 * 1024
 
 
 def _get_request_data():
@@ -41,6 +43,28 @@ def _diff_name_only(repo: Repo, *args: str) -> list[str]:
     except exc.GitCommandError:
         return []
     return _split_lines(output)
+
+
+def _build_untracked_patch(repo: Repo, relative_path: str) -> str | None:
+    path = Path(repo.working_dir, relative_path)
+    try:
+        file_size = path.stat().st_size
+        if file_size > MAX_UNTRACKED_DIFF_BYTES:
+            return (
+                f"File too large to preview ({file_size} bytes). "
+                f"Showing diffs is limited to files up to {MAX_UNTRACKED_DIFF_BYTES} bytes."
+            )
+
+        content = path.read_text(errors="replace")
+    except OSError:
+        return None
+
+    lines = content.splitlines()
+    line_count = len(lines)
+    patch_lines = ["--- /dev/null", f"+++ b/{relative_path}", f"@@ -0,0 +1,{line_count} @@"]
+    for line in lines:
+        patch_lines.append(f"+{line}")
+    return "\n".join(patch_lines)
 
 
 def _staged_paths(repo: Repo) -> list[str]:
@@ -577,17 +601,13 @@ def git_diff(project_id: int):
 
         for u in repo.untracked_files:
             try:
-                from pathlib import Path
-                content = Path(repo.working_dir, u).read_text(errors="replace")
-                lines = content.splitlines()
-                line_count = len(lines)
-                patch_lines = ["--- /dev/null", f"+++ b/{u}", f"@@ -0,0 +1,{line_count} @@"]
-                for line in lines:
-                    patch_lines.append(f"+{line}")
+                patch = _build_untracked_patch(repo, u)
+                if patch is None:
+                    continue
                 entries.append({
                     "path": u,
                     "changeType": "?",
-                    "patch": "\n".join(patch_lines),
+                    "patch": patch,
                 })
             except OSError:
                 pass

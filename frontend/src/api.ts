@@ -18,6 +18,7 @@ import type {
   ProjectsSyncResponse,
   SessionDiffEntry,
   GitDiffEntry,
+  GitDiffResponse,
   TimelineEvent,
   PrdData,
   PrdResponse,
