@@ -2014,6 +2014,75 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             return jsonify({"error": str(exc)}), 400
         return jsonify({"runs": [run.isoformat() for run in runs if run is not None]})
 
+    _DEFAULT_PRD_TEMPLATE = {
+        "project": "My Project",
+        "branchName": "ralph/feature",
+        "description": "Short description of what this PRD covers",
+        "userStories": [
+            {
+                "id": "US-001",
+                "title": "First user story",
+                "description": "As a user I want ...",
+                "acceptanceCriteria": ["Criterion 1", "Criterion 2"],
+                "priority": 1,
+                "passes": False,
+                "notes": "",
+            }
+        ],
+    }
+
+    @app.get("/api/projects/<int:project_id>/prd")
+    @auth_required
+    def get_project_prd(project_id: int):
+        project = Project.query.get(project_id)
+        if project is None:
+            return jsonify({"error": "Project not found"}), 404
+
+        try:
+            prd_path = _resolve_project_relative_path(project, "prd.json")
+        except ValueError:
+            return jsonify({"error": "Invalid project path"}), 400
+
+        if not prd_path.exists():
+            return jsonify({"prd": None})
+
+        try:
+            text = prd_path.read_text(encoding="utf-8")
+        except OSError:
+            return jsonify({"error": "Unable to read prd.json"}), 500
+
+        try:
+            prd_data = json.loads(text)
+        except json.JSONDecodeError:
+            return jsonify({"error": "prd.json contains invalid JSON"}), 500
+
+        return jsonify({"prd": prd_data})
+
+    @app.put("/api/projects/<int:project_id>/prd")
+    @auth_required
+    def upsert_project_prd(project_id: int):
+        project = Project.query.get(project_id)
+        if project is None:
+            return jsonify({"error": "Project not found"}), 404
+
+        body = request.get_json(silent=True) or {}
+        prd_content = body.get("prd") if body.get("prd") is not None else _DEFAULT_PRD_TEMPLATE
+
+        if not isinstance(prd_content, dict):
+            return jsonify({"error": "prd must be a JSON object"}), 400
+
+        try:
+            prd_path = _resolve_project_relative_path(project, "prd.json")
+        except ValueError:
+            return jsonify({"error": "Invalid project path"}), 400
+
+        try:
+            prd_path.write_text(json.dumps(prd_content, indent=2), encoding="utf-8")
+        except OSError:
+            return jsonify({"error": "Unable to write prd.json"}), 500
+
+        return jsonify({"prd": prd_content})
+
     @app.post("/api/projects/<int:project_id>/session/ensure")
     @auth_required
     def ensure_project_session(project_id: int):

@@ -2692,6 +2692,79 @@ input {
   color: #eef6ff;
 }
 
+/* ── Ralph Loop PRD panel ── */
+
+.ralph-panel {
+  border: 1px solid rgba(109, 184, 255, 0.22);
+  border-radius: 18px;
+  padding: 0.9rem;
+  background: rgba(14, 24, 38, 0.9);
+  display: grid;
+  gap: 0.65rem;
+}
+
+.ralph-panel-head {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.ralph-panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ralph-panel-title {
+  font-size: 0.94rem;
+  color: #eef6ff;
+}
+
+.ralph-panel-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+
+.ralph-empty {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ralph-story-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.ralph-story-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: #aac3db;
+}
+
+.ralph-story-item.done {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.ralph-story-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ralph-done-note {
+  margin: 0;
+  text-align: center;
+}
+
 .tasks-editor {
   display: grid;
   gap: 1rem;

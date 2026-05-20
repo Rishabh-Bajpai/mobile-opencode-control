@@ -204,3 +204,24 @@ export interface ScheduledTaskDetails {
   runs: ScheduledTaskRun[];
   metrics?: ScheduledTaskMetrics;
 }
+
+export interface PrdUserStory {
+  id: string;
+  title: string;
+  description: string;
+  acceptanceCriteria: string[];
+  priority: number;
+  passes: boolean;
+  notes: string;
+}
+
+export interface PrdData {
+  project: string;
+  branchName: string;
+  description: string;
+  userStories: PrdUserStory[];
+}
+
+export interface PrdResponse {
+  prd: PrdData | null;
+}
