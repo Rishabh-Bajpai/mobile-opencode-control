@@ -904,6 +904,22 @@ input {
   color: #f0a090;
 }
 
+.mobile-chat-meta-strip .context-usage-pill {
+  color: inherit;
+}
+
+.mobile-chat-meta-strip .context-usage-pill-green {
+  color: #8fbc8f;
+}
+
+.mobile-chat-meta-strip .context-usage-pill-yellow {
+  color: #f0d880;
+}
+
+.mobile-chat-meta-strip .context-usage-pill-red {
+  color: #f0a090;
+}
+
 .compaction-message {
   position: relative;
 }
