@@ -577,56 +577,60 @@ export default function GitView({ projectId, mobile = false }: GitViewProps) {
         {notice ? <div className="git-feedback git-feedback-success">{notice}</div> : null}
         {error ? <div className="error">{error}</div> : null}
 
-        <div className="git-summary-grid">
-          <article className="git-surface-card git-summary-card git-summary-accent">
-            <div className="toolbar-card-head">
-              <strong>Working tree</strong>
-              <span>{status.isClean ? "Everything is committed." : `${totalChangeCount} local items need attention.`}</span>
-            </div>
-            <div className="git-summary-metric-row">
-              <span className={`git-status-pill ${status.isClean ? "success" : "warn"}`}>
-                {status.isClean ? "Clean" : "Changes pending"}
-              </span>
-              <span className="git-summary-value">{totalChangeCount}</span>
-            </div>
-          </article>
-
-          <article className="git-surface-card git-summary-card">
-            <div className="toolbar-card-head">
-              <strong>Remote</strong>
-              <span>{hasRemote ? status.remoteDetails.map((remote) => remote.name).join(", ") : "No remote configured"}</span>
-            </div>
-            <small className="git-summary-detail">{primaryRemoteDetail}</small>
-          </article>
-
-          <article className="git-surface-card git-summary-card">
-            <div className="toolbar-card-head">
-              <strong>Sync status</strong>
-              <span>{status.upstream ?? "No upstream branch"}</span>
-            </div>
-            <div className="git-summary-metric-row">
-              <span className={`git-status-pill ${syncTone}`}>{syncLabel}</span>
-              <div className="git-sync-counts">
-                <span>↑ {status.ahead}</span>
-                <span>↓ {status.behind}</span>
-              </div>
-            </div>
-          </article>
-
-          <article className="git-surface-card git-summary-card">
-            <div className="toolbar-card-head">
-              <strong>Last commit</strong>
-              <span>{status.lastCommit ? status.lastCommit.shortSha : "No commits yet"}</span>
-            </div>
-            <small className="git-summary-detail">
-              {status.lastCommit?.message ?? "Stage files, write a message, and save your first checkpoint."}
-            </small>
-          </article>
-        </div>
       </section>
 
       <section className={`git-panel-grid git-section-${activeSection}`}>
-        {(activeSection === "overview" || activeSection === "changes") && (
+        {activeSection === "overview" && (
+          <section className="git-surface-card git-panel-card">
+            <div className="git-summary-grid">
+              <article className="git-surface-card git-summary-card git-summary-accent">
+                <div className="toolbar-card-head">
+                  <strong>Working tree</strong>
+                  <span>{status.isClean ? "Everything is committed." : `${totalChangeCount} local items need attention.`}</span>
+                </div>
+                <div className="git-summary-metric-row">
+                  <span className={`git-status-pill ${status.isClean ? "success" : "warn"}`}>
+                    {status.isClean ? "Clean" : "Changes pending"}
+                  </span>
+                  <span className="git-summary-value">{totalChangeCount}</span>
+                </div>
+              </article>
+
+              <article className="git-surface-card git-summary-card">
+                <div className="toolbar-card-head">
+                  <strong>Remote</strong>
+                  <span>{hasRemote ? status.remoteDetails.map((remote) => remote.name).join(", ") : "No remote configured"}</span>
+                </div>
+                <small className="git-summary-detail">{primaryRemoteDetail}</small>
+              </article>
+
+              <article className="git-surface-card git-summary-card">
+                <div className="toolbar-card-head">
+                  <strong>Sync status</strong>
+                  <span>{status.upstream ?? "No upstream branch"}</span>
+                </div>
+                <div className="git-summary-metric-row">
+                  <span className={`git-status-pill ${syncTone}`}>{syncLabel}</span>
+                  <div className="git-sync-counts">
+                    <span>↑ {status.ahead}</span>
+                    <span>↓ {status.behind}</span>
+                  </div>
+                </div>
+              </article>
+
+              <article className="git-surface-card git-summary-card">
+                <div className="toolbar-card-head">
+                  <strong>Last commit</strong>
+                  <span>{status.lastCommit ? status.lastCommit.shortSha : "No commits yet"}</span>
+                </div>
+                <small className="git-summary-detail">
+                  {status.lastCommit?.message ?? "Stage files, write a message, and save your first checkpoint."}
+                </small>
+              </article>
+            </div>
+          </section>
+        )}
+        {(activeSection === "changes") && (
           <section className="git-surface-card git-panel-card">
             <div className="git-panel-head">
               <div>
@@ -674,7 +678,7 @@ export default function GitView({ projectId, mobile = false }: GitViewProps) {
           </section>
         )}
 
-        {(activeSection === "overview" || activeSection === "branches") && (
+        {activeSection === "branches" && (
           <section className="git-surface-card git-panel-card">
             <div className="git-panel-head">
               <div>
@@ -763,7 +767,7 @@ export default function GitView({ projectId, mobile = false }: GitViewProps) {
           </section>
         )}
 
-        {(activeSection === "overview" || activeSection === "history") && (
+        {activeSection === "history" && (
           <section className="git-surface-card git-panel-card">
             <div className="git-panel-head">
               <div>
@@ -803,7 +807,7 @@ export default function GitView({ projectId, mobile = false }: GitViewProps) {
           </section>
         )}
 
-        {(activeSection === "overview" || activeSection === "changes") && (
+        {activeSection === "changes" && (
           <section className="git-surface-card git-panel-card">
             <div className="git-panel-head">
               <div>
@@ -838,7 +842,7 @@ export default function GitView({ projectId, mobile = false }: GitViewProps) {
           </section>
         )}
 
-        {(activeSection === "overview" || activeSection === "branches") && (
+        {activeSection === "branches" && (
           <section className="git-surface-card git-panel-card">
             <div className="git-panel-head">
               <div>
