@@ -327,7 +327,7 @@ function NotificationControls({
         <span>Final agent replies in the background</span>
       </div>
       <small>{statusLabel}</small>
-      <label className="notification-setting-field">
+      <label>
         <span>Delivery channel</span>
         <select value={channel} onChange={(event) => onChannelChange(event.currentTarget.value as NotificationChannel)}>
           <option value="browser">Browser</option>
@@ -336,7 +336,7 @@ function NotificationControls({
           <option value="off">Off</option>
         </select>
       </label>
-      <label className="notification-setting-field">
+      <label>
         <span>ntfy topic URL</span>
         <input
           value={ntfyTopicUrl}

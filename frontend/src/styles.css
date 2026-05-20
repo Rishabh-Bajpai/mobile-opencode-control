@@ -1033,6 +1033,33 @@ input {
   gap: 0.55rem;
 }
 
+.notification-controls label {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.notification-controls label span {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.notification-controls select,
+.notification-controls input {
+  min-width: 0;
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0f1b29;
+  color: var(--text-main);
+  padding: 0 0.6rem;
+  font-size: 0.83rem;
+}
+
+.notification-controls input::placeholder {
+  color: var(--text-muted);
+}
+
 .install-controls {
   display: grid;
   gap: 0.55rem;
