@@ -14,7 +14,7 @@
 | #4 File tree | ✅ **COMPLETE** | None |
 | #3 Notifications | ✅ **COMPLETE** | None — routing logic verified correct |
 | #2 Project ordering | ✅ **COMPLETE** | None |
-| #6 Multi-session | ✅ **PHASE 1 COMPLETE** | Session tab bar replaces dropdown; Phase 2-3 not started |
+| #6 Multi-session | ✅ **PHASE 1 COMPLETE** | Custom dropdown replaced session tabs; Phase 2-3 not started |
 | #7 Streaming | ❌ **NOT STARTED** | No `text.delta`/`text.ended` parsing, no incremental updates, no heartbeat handling |
 
 ---
@@ -252,21 +252,23 @@ Active project always appears first, regardless of `last_activity_at`. All rende
 
 ## ✅ Issue #6 — Multi-Session Simultaneous Conversations (P1) — PHASE 1 COMPLETE
 
-**Status: ✅ PHASE 1 COMPLETE — session dropdown replaced with tab bar**
+**Status: ✅ PHASE 1 COMPLETE — custom dropdown replaces session tabs**
 
-### Phase 1 — Session tabs (COMPLETE)
+### Phase 1 — Session dropdown (COMPLETE)
 
-1. ✅ Replaced the `<select>` in `RuntimeControls` with a horizontal tab bar of session buttons
-2. ✅ Each session tab shows a truncated label (24 chars) + timestamp
-3. ✅ Active session is highlighted with accent border and background
-4. ✅ Clicking a tab switches session (using existing `handleSwitchSession`)
-5. ✅ "+" tab at the end for `handleCreateSession`
-6. ✅ "Delete" button moved below tab bar
-7. ✅ Scrollable tab bar with thin scrollbar for overflow
+1. ✅ Replaced the tab bar with a custom dropdown selector in `RuntimeControls`
+2. ✅ Trigger button shows current session label + timestamp + chevron (▾/▴)
+3. ✅ Dropdown panel is scrollable (max-height 240px), dark-themed, matches app colors
+4. ✅ Each row shows session label (left) + timestamp (right, muted)
+5. ✅ Active session highlighted with accent border-left + background
+6. ✅ "+ New session" action at bottom with divider
+7. ✅ Click outside or Escape key closes dropdown
+8. ✅ "Delete" button below the dropdown
+9. ✅ Disabled during sessionLoading/sessionSwitching
 
 **Files changed**:
-- `frontend/src/components/toolbar/RuntimeControls.tsx` — session dropdown → tab bar
-- `frontend/src/styles.css` — `.session-tabs`, `.session-tab`, `.session-tab.active`, `.session-tab-new`, `.session-section`
+- `frontend/src/components/toolbar/RuntimeControls.tsx` — custom dropdown with open/close, click-outside, Escape handling
+- `frontend/src/styles.css` — `.session-dropdown-trigger`, `.session-dropdown-panel`, `.session-dropdown-item`, `.session-dropdown-item.active`, `.session-dropdown-new`, `.session-section`
 
 ### Files changed
 - `frontend/src/components/toolbar/RuntimeControls.tsx` — extract session UI back to separate component

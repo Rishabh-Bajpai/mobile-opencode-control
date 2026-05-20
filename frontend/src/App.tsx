@@ -81,7 +81,7 @@ import { formatCompactSessionId, formatElapsedShort, formatSessionOptionLabel, f
 import { buildGroupedTimelineEntries, buildMessageStableKey, getNonTextParts, timelineEventToTaskRun } from "./utils/messageUtils";
 import { buildProjectPathFromRoot, extractRootFromProjectPath, getSuggestedProjectRoot, normalizeProjectRootPath, projectInitials } from "./utils/projectUtils";
 import { toDateInputPartsInTimezone, toDateTimeInputValueInTimezone, toIsoInTimezone } from "./utils/taskUtils";
-import { parseApprovalFromStreamData, parseQuestionFromStreamData } from "./utils/streamUtils";
+import { parseApprovalFromStreamData, parseQuestionFromStreamData, classifyStreamEvent } from "./utils/streamUtils";
 import { buildInitialQuestionDraft, buildQuestionReplyAnswers, getManualInstallMessage, inferTelemetryCategory, markerTimeWindowMs, nextReconnectDelayMs, parseSlashCommand, removeQuestionFromList, resolveDevFixtureMode, schedulerHeartbeatState, scrollEntryIntoView } from "./utils/miscUtils";
 import { LoginView } from "./components/auth/LoginView";
 import { AgentActivityCard } from "./components/chat/AgentActivityCard";
@@ -349,6 +349,9 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
   const sessionLoadRequestRef = useRef(0);
   const projectFilePreviewRequestRef = useRef(0);
   const projectFileLoadGenerationRef = useRef(0);
+  const heartbeatTimerRef = useRef<number | null>(null);
+  const streamStatusRef = useRef(streamStatus);
+  streamStatusRef.current = streamStatus;
 
   function addTelemetryMarker(event: string, payload?: Record<string, unknown>) {
     const marker: TelemetryMarker = {
@@ -2230,6 +2233,10 @@ async function loadDiff(projectId: string) {
         window.clearTimeout(streamReconnectTimerRef.current);
         streamReconnectTimerRef.current = null;
       }
+      if (heartbeatTimerRef.current !== null) {
+        window.clearTimeout(heartbeatTimerRef.current);
+        heartbeatTimerRef.current = null;
+      }
       return;
     }
 
@@ -2255,6 +2262,24 @@ async function loadDiff(projectId: string) {
       };
 
       stream.onmessage = (event) => {
+        const classification = classifyStreamEvent(event.data);
+
+        if (classification.isHeartbeat) {
+          if (heartbeatTimerRef.current !== null) {
+            window.clearTimeout(heartbeatTimerRef.current);
+          }
+          heartbeatTimerRef.current = window.setTimeout(() => {
+            if (streamStatusRef.current === "live" && eventSourceRef.current) {
+              addTelemetryMarker("stream.heartbeat.stale", { projectId: activeProjectId });
+              eventSourceRef.current.close();
+              eventSourceRef.current = null;
+              setStreamStatus("reconnecting");
+              setReconnectStartedAtMs(Date.now());
+            }
+          }, 20000);
+          return;
+        }
+
         const parsed = parseApprovalFromStreamData(event.data);
         const parsedQuestion = parseQuestionFromStreamData(event.data);
         if (parsed.request) {
@@ -2295,7 +2320,9 @@ async function loadDiff(projectId: string) {
             return next;
           });
         }
-        scheduleStreamRefresh(activeProjectId);
+        if (classification.hasMessageUpdate) {
+          scheduleStreamRefresh(activeProjectId);
+        }
       };
 
       stream.onerror = () => {
@@ -2329,6 +2356,10 @@ async function loadDiff(projectId: string) {
       if (streamReconnectTimerRef.current !== null) {
         window.clearTimeout(streamReconnectTimerRef.current);
         streamReconnectTimerRef.current = null;
+      }
+      if (heartbeatTimerRef.current !== null) {
+        window.clearTimeout(heartbeatTimerRef.current);
+        heartbeatTimerRef.current = null;
       }
       if (eventSourceRef.current) {
         eventSourceRef.current.close();

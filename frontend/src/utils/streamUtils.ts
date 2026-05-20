@@ -195,3 +195,75 @@ export function parseQuestionFromStreamData(data: string): {
 
   return { request: null, resolvedQuestionId: null };
 }
+
+export type StreamEventClassification = {
+  hasMessageUpdate: boolean;
+  hasQuestionUpdate: boolean;
+  hasApprovalUpdate: boolean;
+  isHeartbeat: boolean;
+  rawEventType: string | null;
+};
+
+export function classifyStreamEvent(data: string): StreamEventClassification {
+  const result: StreamEventClassification = {
+    hasMessageUpdate: false,
+    hasQuestionUpdate: false,
+    hasApprovalUpdate: false,
+    isHeartbeat: false,
+    rawEventType: null,
+  };
+
+  try {
+    const wrapper = JSON.parse(data) as { event?: string[]; type?: string };
+
+    const rawEvents = Array.isArray(wrapper.event) ? wrapper.event : [];
+    for (const raw of rawEvents) {
+      if (!raw.startsWith("event: ")) continue;
+      const eventType = raw.slice(7).trim();
+      result.rawEventType = eventType;
+
+      if (eventType === "heartbeat") {
+        result.isHeartbeat = true;
+      } else if (eventType.includes("permission")) {
+        result.hasApprovalUpdate = true;
+      } else if (eventType === "question.asked" || eventType === "question.replied" || eventType === "question.rejected") {
+        result.hasQuestionUpdate = true;
+      } else if (
+        eventType === "text.delta" ||
+        eventType === "text.ended" ||
+        eventType === "prompted" ||
+        eventType === "tool.called" ||
+        eventType === "tool.result" ||
+        eventType === "tool.error" ||
+        eventType === "message.created" ||
+        eventType === "message.updated" ||
+        eventType === "message.completed"
+      ) {
+        result.hasMessageUpdate = true;
+      }
+    }
+
+    if (!result.rawEventType && wrapper.type) {
+      const directType = String(wrapper.type).toLowerCase();
+      result.rawEventType = directType;
+      if (directType === "heartbeat") {
+        result.isHeartbeat = true;
+      } else if (directType.includes("permission")) {
+        result.hasApprovalUpdate = true;
+      } else if (directType.startsWith("question.")) {
+        result.hasQuestionUpdate = true;
+      } else if (
+        directType.startsWith("text.") ||
+        directType.startsWith("tool.") ||
+        directType.startsWith("message.") ||
+        directType === "prompted"
+      ) {
+        result.hasMessageUpdate = true;
+      }
+    }
+  } catch {
+    // ignore malformed events
+  }
+
+  return result;
+}
