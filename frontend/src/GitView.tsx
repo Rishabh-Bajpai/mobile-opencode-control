@@ -1,27 +1,80 @@
-import { useState, useEffect, FormEvent } from "react";
-import { GitStatusResponse, apiGitInit, apiGitStatus, apiGitCommit, apiGitPush, apiGitPull, apiGitRemote } from "./api";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+
+import {
+  GitStatusResponse,
+  apiGitCommit,
+  apiGitInit,
+  apiGitPull,
+  apiGitPush,
+  apiGitRemote,
+  apiGitStatus,
+} from "./api";
 
 interface GitViewProps {
   projectId: string;
 }
 
+type ChangeGroup = {
+  key: "staged" | "changed" | "untracked";
+  title: string;
+  description: string;
+  files: string[];
+};
+
+function formatSyncLabel(status: GitStatusResponse): string {
+  if (!status.upstream) {
+    return status.remotes.length > 0 ? "Remote configured" : "No upstream";
+  }
+
+  if (status.ahead === 0 && status.behind === 0) {
+    return "Up to date";
+  }
+
+  const parts: string[] = [];
+  if (status.ahead > 0) {
+    parts.push(`${status.ahead} ahead`);
+  }
+  if (status.behind > 0) {
+    parts.push(`${status.behind} behind`);
+  }
+  return parts.join(" · ");
+}
+
 export default function GitView({ projectId }: GitViewProps) {
   const [status, setStatus] = useState<GitStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [operation, setOperation] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
   const [remoteUrl, setRemoteUrl] = useState("");
 
-  const loadStatus = async () => {
-    setLoading(true);
+  const loadStatus = async (background = false) => {
+    if (background) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
     setError(null);
+
     try {
       const data = await apiGitStatus(projectId);
       setStatus(data);
-    } catch (err: any) {
-      setError(err.message || "Failed to load git status");
+
+      const originRemote = data.remoteDetails.find((remote) => remote.name === "origin") ?? data.remoteDetails[0];
+      setRemoteUrl(originRemote?.url ?? "");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load git status";
+      setError(message);
+      setStatus(null);
     } finally {
-      setLoading(false);
+      if (background) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
 
@@ -31,160 +84,320 @@ export default function GitView({ projectId }: GitViewProps) {
     }
   }, [projectId]);
 
-  const handleInit = async () => {
+  const runOperation = async (name: string, action: () => Promise<unknown>, successMessage: string) => {
+    setOperation(name);
+    setError(null);
+    setNotice(null);
+
     try {
-      await apiGitInit(projectId);
-      await loadStatus();
-    } catch (err: any) {
-      setError(err.message);
+      await action();
+      await loadStatus(true);
+      setNotice(successMessage);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Git action failed";
+      setError(message);
+    } finally {
+      setOperation(null);
     }
   };
 
-  const handleCommit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!commitMessage.trim()) return;
-    try {
-      await apiGitCommit(projectId, commitMessage);
-      setCommitMessage("");
-      await loadStatus();
-    } catch (err: any) {
-      setError(err.message);
+  const changeGroups = useMemo<ChangeGroup[]>(
+    () =>
+      status
+        ? [
+            {
+              key: "staged",
+              title: "Ready to commit",
+              description: "These files are already staged and will be included in the next commit.",
+              files: status.staged,
+            },
+            {
+              key: "changed",
+              title: "Modified",
+              description: "Tracked files changed in the working tree.",
+              files: status.changed,
+            },
+            {
+              key: "untracked",
+              title: "Untracked",
+              description: "New files not yet committed.",
+              files: status.untracked,
+            },
+          ]
+        : [],
+    [status]
+  );
+
+  const hasRemote = (status?.remoteDetails.length ?? 0) > 0;
+  const canSync = Boolean(status?.hasCommits && hasRemote);
+  const canCommit = Boolean(commitMessage.trim()) && Boolean(status && !status.isClean);
+  const syncLabel = status ? formatSyncLabel(status) : "";
+  const syncTone =
+    status && status.behind > 0 ? "warn" : status && status.ahead > 0 ? "info" : "neutral";
+
+  const handleInit = async () => {
+    await runOperation("init", () => apiGitInit(projectId), "Repository initialized.");
+  };
+
+  const handleCommit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canCommit) {
+      return;
     }
+
+    const message = commitMessage.trim();
+    await runOperation(
+      "commit",
+      async () => {
+        await apiGitCommit(projectId, message);
+        setCommitMessage("");
+      },
+      "Changes committed."
+    );
   };
 
   const handlePush = async () => {
-    try {
-      await apiGitPush(projectId, "origin");
-      await loadStatus();
-    } catch (err: any) {
-      setError(err.message);
-    }
+    await runOperation("push", () => apiGitPush(projectId, "origin"), "Pushed to origin.");
   };
 
   const handlePull = async () => {
-    try {
-      await apiGitPull(projectId, "origin");
-      await loadStatus();
-    } catch (err: any) {
-      setError(err.message);
-    }
+    await runOperation("pull", () => apiGitPull(projectId, "origin"), "Pulled from origin.");
   };
 
-  const handleSetRemote = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!remoteUrl.trim()) return;
-    try {
-      await apiGitRemote(projectId, "origin", remoteUrl);
-      setRemoteUrl("");
-      await loadStatus();
-    } catch (err: any) {
-      setError(err.message);
+  const handleSetRemote = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const url = remoteUrl.trim();
+    if (!url) {
+      return;
     }
+
+    await runOperation("remote", () => apiGitRemote(projectId, "origin", url), "Origin updated.");
+  };
+
+  const handleRefresh = async () => {
+    setNotice(null);
+    await loadStatus(true);
   };
 
   if (loading) {
-    return <div className="git-view p-4">Loading git status...</div>;
-  }
-
-  if (status?.notGit || error?.includes("not a git repository") || error?.toLowerCase().includes("notgit")) {
     return (
-      <div className="git-view p-4">
-        <h2>Git is not initialized for this project.</h2>
-        <button className="primary-button mt-4" onClick={() => void handleInit()}>Initialize Git Repository</button>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="git-view p-4 error">
-        <h2>Error</h2>
-        <p>{error}</p>
-        <button onClick={() => void loadStatus()}>Retry</button>
-      </div>
-    );
-  }
-
-  if (!status) return null;
-
-  return (
-    <div className="git-view" style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px" }}>
-      <div className="git-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h2>Git Status - {status.branch}</h2>
-        <div>
-            <button className="secondary-button" style={{ marginRight: '8px' }} onClick={() => void handlePull()}>Pull</button>
-            <button className="secondary-button" onClick={() => void handlePush()}>Push</button>
+      <div className="git-view-shell">
+        <div className="toolbar-card git-card">
+          <div className="toolbar-card-head">
+            <strong>Git</strong>
+            <span>Loading repository status…</span>
+          </div>
         </div>
       </div>
+    );
+  }
 
-      <div className="git-section card" style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '8px' }}>
-      <div className="git-section card" style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '8px' }}>
-      <div className="git-section card" style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '8px' }}>
-        <h3>Commit Changes</h3>
-        <form onSubmit={handleCommit} style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-          <input
-            type="text"
-            className="text-input"
-            value={commitMessage}
-            onChange={(e) => setCommitMessage(e.target.value)}
-            placeholder="Commit message (stages all changed files)"
-            style={{ flex: 1 }}
-          />
-          <button type="submit" className="primary-button" disabled={!commitMessage.trim()}>Commit</button>
-        </form>
+  if (status?.notGit || error?.toLowerCase().includes("not a git repository") || error?.toLowerCase().includes("notgit")) {
+    return (
+      <div className="git-view-shell">
+        <div className="toolbar-card git-card git-empty-card">
+          <div className="empty-pill">
+            <p>Git is not initialized for this project.</p>
+            <small>Create a local repository first, then add a remote when you are ready to sync.</small>
+          </div>
+          <div className="notification-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void handleInit()}
+              disabled={operation === "init"}
+            >
+              {operation === "init" ? "Initializing..." : "Initialize repository"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!status) {
+    return (
+      <div className="git-view-shell">
+        <div className="toolbar-card git-card">
+          <div className="toolbar-card-head">
+            <strong>Git</strong>
+            <span>Unable to load repository status.</span>
+          </div>
+          {error ? <div className="error">{error}</div> : null}
+          <div className="notification-actions">
+            <button type="button" className="secondary-button" onClick={() => void loadStatus()}>
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="git-view-shell">
+      <section className="toolbar-card git-card">
+        <div className="git-header">
+          <div className="toolbar-card-head">
+            <strong>Git workspace</strong>
+            <span>
+              {status.hasCommits
+                ? `Branch ${status.branch}${status.upstream ? ` · tracking ${status.upstream}` : ""}`
+                : "Create the first commit to start tracking history."}
+            </span>
+          </div>
+          <div className="notification-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void handleRefresh()}
+              disabled={refreshing || operation !== null}
+            >
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void handlePull()}
+              disabled={!canSync || operation !== null}
+            >
+              {operation === "pull" ? "Pulling..." : "Pull"}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void handlePush()}
+              disabled={!canSync || operation !== null}
+            >
+              {operation === "push" ? "Pushing..." : "Push"}
+            </button>
+          </div>
+        </div>
+
+        {notice ? <div className="git-feedback git-feedback-success">{notice}</div> : null}
+        {error ? <div className="error">{error}</div> : null}
+
+        <div className="git-summary-grid">
+          <article className="toolbar-card git-summary-card">
+            <div className="toolbar-card-head">
+              <strong>Working tree</strong>
+              <span>{status.isClean ? "Everything is committed." : "There are local changes to review."}</span>
+            </div>
+            <span className={`git-status-pill ${status.isClean ? "success" : "warn"}`}>
+              {status.isClean ? "Clean" : "Changes pending"}
+            </span>
+          </article>
+
+          <article className="toolbar-card git-summary-card">
+            <div className="toolbar-card-head">
+              <strong>Remote</strong>
+              <span>{hasRemote ? status.remoteDetails.map((remote) => remote.name).join(", ") : "No remote configured"}</span>
+            </div>
+            <small className="git-summary-detail">
+              {status.remoteDetails[0]?.url ?? "Add an origin URL to enable pull and push."}
+            </small>
+          </article>
+
+          <article className="toolbar-card git-summary-card">
+            <div className="toolbar-card-head">
+              <strong>Sync status</strong>
+              <span>{status.upstream ?? "No upstream branch"}</span>
+            </div>
+            <span className={`git-status-pill ${syncTone}`}>{syncLabel}</span>
+          </article>
+
+          <article className="toolbar-card git-summary-card">
+            <div className="toolbar-card-head">
+              <strong>Last commit</strong>
+              <span>{status.lastCommit ? status.lastCommit.shortSha : "No commits yet"}</span>
+            </div>
+            <small className="git-summary-detail">{status.lastCommit?.message ?? "Commit your staged and modified files to start history."}</small>
+          </article>
+        </div>
+      </section>
+
+      <div className="git-content-grid">
+        <section className="toolbar-card git-card">
+          <div className="toolbar-card-head">
+            <strong>Commit all changes</strong>
+            <span>The commit action stages tracked, untracked, and deleted files before saving.</span>
+          </div>
+          <form className="git-form" onSubmit={handleCommit}>
+            <label>
+              Commit message
+              <textarea
+                value={commitMessage}
+                onChange={(event) => setCommitMessage(event.target.value)}
+                placeholder="Describe what changed"
+                disabled={operation !== null}
+              />
+            </label>
+            <div className="notification-actions">
+              <button type="submit" className="secondary-button" disabled={!canCommit || operation !== null}>
+                {operation === "commit" ? "Committing..." : "Commit"}
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section className="toolbar-card git-card">
+          <div className="toolbar-card-head">
+            <strong>Origin remote</strong>
+            <span>Set or update the repository URL used for pull and push.</span>
+          </div>
+          <form className="git-form" onSubmit={handleSetRemote}>
+            <label>
+              Remote URL
+              <input
+                type="text"
+                value={remoteUrl}
+                onChange={(event) => setRemoteUrl(event.target.value)}
+                placeholder="https://github.com/owner/repo.git"
+                disabled={operation !== null}
+              />
+            </label>
+            <div className="notification-actions">
+              <button type="submit" className="secondary-button" disabled={!remoteUrl.trim() || operation !== null}>
+                {operation === "remote" ? "Saving..." : hasRemote ? "Update origin" : "Set origin"}
+              </button>
+            </div>
+          </form>
+        </section>
       </div>
 
-         <h3>Changes</h3>
-         {status.isClean ? (
-             <p>Working tree is clean.</p>
-         ) : (
-             <>
-                 {status.staged.length > 0 && (
-                     <div>
-                         <h4>Staged</h4>
-                         <ul style={{ paddingLeft: '20px', fontSize: '14px' }}>
-                             {status.staged.map(f => <li key={f} style={{ color: 'var(--accent-color)' }}>{f}</li>)}
-                         </ul>
-                     </div>
-                 )}
-                 {status.changed.length > 0 && (
-                     <div style={{ marginTop: '8px' }}>
-                         <h4>Changed</h4>
-                         <ul style={{ paddingLeft: '20px', fontSize: '14px' }}>
-                             {status.changed.map(f => <li key={f} style={{ color: 'var(--text-color)' }}>{f}</li>)}
-                         </ul>
-                     </div>
-                 )}
-                 {status.untracked.length > 0 && (
-                     <div style={{ marginTop: '8px' }}>
-                         <h4>Untracked</h4>
-                         <ul style={{ paddingLeft: '20px', fontSize: '14px' }}>
-                             {status.untracked.map(f => <li key={f} style={{ color: 'var(--text-color-muted)' }}>{f}</li>)}
-                         </ul>
-                     </div>
-                 )}
-             </>
-         )}
-      </div>
+      <section className="toolbar-card git-card">
+        <div className="toolbar-card-head">
+          <strong>File changes</strong>
+          <span>Review what will be included in the next commit.</span>
+        </div>
 
-        <h3>Remote</h3>
-        {status.remotes.length > 0 ? (
-          <p>Configured remotes: {status.remotes.join(", ")}</p>
+        {status.isClean ? (
+          <div className="empty-pill git-empty-pill">
+            <p>Working tree is clean.</p>
+            <small>Pull for remote updates or make local edits to see them here.</small>
+          </div>
         ) : (
-          <p>No remote configured.</p>
+          <div className="git-change-grid">
+            {changeGroups
+              .filter((group) => group.files.length > 0)
+              .map((group) => (
+                <article className="toolbar-card git-change-card" key={group.key}>
+                  <div className="toolbar-card-head">
+                    <strong>
+                      {group.title} <span className="git-inline-count">({group.files.length})</span>
+                    </strong>
+                    <span>{group.description}</span>
+                  </div>
+                  <ul className="git-change-list">
+                    {group.files.map((file) => (
+                      <li key={`${group.key}:${file}`}>{file}</li>
+                    ))}
+                  </ul>
+                </article>
+              ))}
+          </div>
         )}
-        <form onSubmit={handleSetRemote} style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-          <input
-            type="text"
-            className="text-input"
-            value={remoteUrl}
-            onChange={(e) => setRemoteUrl(e.target.value)}
-            placeholder="Remote URL"
-            style={{ flex: 1 }}
-          />
-          <button type="submit" className="secondary-button" disabled={!remoteUrl.trim()}>Set Origin</button>
-        </form>
-      </div>
+      </section>
     </div>
   );
 }

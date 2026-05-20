@@ -7227,7 +7227,7 @@ export function App() {
             </div>
           </section>
         ) : activeMainView === "git" ? (
-          <section className="git-main-view" style={{ flex: 1, overflowY: "auto" }}>
+          <section className="git-main-view">
             {activeProject && <GitView projectId={activeProject.id} />}
           </section>
         ) : null}

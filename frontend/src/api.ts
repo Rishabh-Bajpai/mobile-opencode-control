@@ -438,6 +438,18 @@ export interface GitStatusResponse {
   isClean: boolean;
   branch: string;
   remotes: string[];
+  remoteDetails: Array<{
+    name: string;
+    url: string | null;
+  }>;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  hasCommits: boolean;
+  lastCommit: {
+    shortSha: string;
+    message: string;
+  } | null;
   notGit?: boolean;
 }
 
