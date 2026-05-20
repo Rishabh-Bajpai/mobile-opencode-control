@@ -73,12 +73,12 @@ export default function GitView({ projectId }: GitViewProps) {
       const data = await apiGitStatus(projectId);
       setStatus(data);
 
-      const originRemote = data.remoteDetails.find((remote) => remote.name === "origin") ?? data.remoteDetails[0];
+      const primaryRemote = data.remoteDetails.find((remote) => remote.name === "origin") ?? data.remoteDetails[0];
       setRemoteUrl((currentRemoteUrl) => {
-        if (!originRemote) {
+        if (!primaryRemote) {
           return "";
         }
-        return originRemote.url ?? currentRemoteUrl;
+        return primaryRemote.url ?? currentRemoteUrl;
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load git status";
@@ -148,10 +148,13 @@ export default function GitView({ projectId }: GitViewProps) {
   const canCommit = Boolean(commitMessage.trim()) && Boolean(status && !status.isClean);
   const syncLabel = status ? formatSyncLabel(status) : "";
   const syncTone = status ? getSyncTone(status) : "neutral";
+  const primaryRemote = status
+    ? status.remoteDetails.find((remote) => remote.name === "origin") ?? status.remoteDetails[0]
+    : null;
   const primaryRemoteDetail = !status
     ? ""
-    : status.remoteDetails[0]
-    ? status.remoteDetails[0].url ?? "Remote is configured, but no URL is currently set."
+    : primaryRemote
+    ? primaryRemote.url ?? "Remote is configured, but no URL is currently set."
     : "Add an origin URL to enable pull and push.";
 
   const handleInit = async () => {

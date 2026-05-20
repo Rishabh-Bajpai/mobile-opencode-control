@@ -7,6 +7,17 @@ from .models import Project
 git_bp = Blueprint('git_bp', __name__)
 
 
+def _get_request_data():
+    data = request.get_json(silent=True)
+    if data is None:
+        if request.content_length:
+            return None, (jsonify({"error": "Request body must be valid JSON"}), 400)
+        return {}, None
+    if not isinstance(data, dict):
+        return None, (jsonify({"error": "Request body must be a JSON object"}), 400)
+    return data, None
+
+
 def _current_branch_name(repo: Repo) -> str:
     if not repo.head.is_valid():
         try:
@@ -125,7 +136,9 @@ def git_commit(project_id: int):
     if err_resp:
         return err_resp, err_code
 
-    data = request.get_json(silent=True) or {}
+    data, error_response = _get_request_data()
+    if error_response:
+        return error_response
     message = (data.get("message") or "").strip()
     if not message:
         return jsonify({"error": "Commit message is required"}), 400
@@ -147,13 +160,15 @@ def git_push(project_id: int):
     if err_resp:
         return err_resp, err_code
 
-    data = request.get_json(silent=True) or {}
+    data, error_response = _get_request_data()
+    if error_response:
+        return error_response
     remote_name = (data.get("remote") or "origin").strip()
 
     try:
         remote = _get_named_remote(repo, remote_name)
         if remote is None:
-            return jsonify({"error": f"Remote '{remote_name}' is not configured. Add it in the Origin remote section below."}), 400
+            return jsonify({"error": f"Remote '{remote_name}' is not configured. Use the remote endpoint to add it."}), 400
         if not repo.head.is_valid():
             return jsonify({"error": "Create at least one commit before pushing"}), 400
         if repo.head.is_detached:
@@ -175,7 +190,9 @@ def git_pull(project_id: int):
     if err_resp:
         return err_resp, err_code
 
-    data = request.get_json(silent=True) or {}
+    data, error_response = _get_request_data()
+    if error_response:
+        return error_response
     remote_name = (data.get("remote") or "origin").strip()
 
     try:
@@ -199,7 +216,9 @@ def git_remote(project_id: int):
     if err_resp:
         return err_resp, err_code
 
-    data = request.get_json(silent=True) or {}
+    data, error_response = _get_request_data()
+    if error_response:
+        return error_response
     name = (data.get("name") or "origin").strip()
     url = (data.get("url") or "").strip()
     if not url:
