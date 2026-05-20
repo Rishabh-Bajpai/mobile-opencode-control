@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   AppStateResponse,
   OpenCodeCommand,
+  NotificationSettings,
   Project,
   ProjectSession,
   ProjectRuntimeOptions,
@@ -9,6 +10,7 @@ import type {
   ProjectFileContent,
   ProjectDirectoryListResponse,
   ProjectsResponse,
+  QuestionRequest,
   ScheduledTaskDetails,
   ScheduledTaskMetrics,
   ScheduledTaskRun,
@@ -128,33 +130,35 @@ export async function fetchMessages(projectId: string, sessionId?: string): Prom
   return request(`/api/projects/${projectId}/messages${params}`);
 }
 
-export async function sendMessage(projectId: string, text: string): Promise<{
+export async function sendMessage(projectId: string, text: string, sessionId?: string | null): Promise<{
   sessionId: string;
   message: ChatMessage;
 }> {
   return request(`/api/projects/${projectId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, sessionId: sessionId ?? null }),
   });
 }
 
-export async function abortSession(projectId: string): Promise<{ ok: boolean; sessionId: string }> {
+export async function abortSession(projectId: string, sessionId?: string | null): Promise<{ ok: boolean; sessionId: string }> {
   return request(`/api/projects/${projectId}/abort`, {
     method: "POST",
+    body: JSON.stringify({ sessionId: sessionId ?? null }),
   });
 }
 
 export async function runCommand(
   projectId: string,
   command: string,
-  argumentsList: string[]
+  argumentsList: string[],
+  sessionId?: string | null
 ): Promise<{
   sessionId: string;
   message: ChatMessage;
 }> {
   return request(`/api/projects/${projectId}/commands`, {
     method: "POST",
-    body: JSON.stringify({ command, arguments: argumentsList }),
+    body: JSON.stringify({ command, arguments: argumentsList, sessionId: sessionId ?? null }),
   });
 }
 
@@ -185,6 +189,65 @@ export async function respondPermission(
   return request(`/api/projects/${projectId}/permissions/${permissionId}`, {
     method: "POST",
     body: JSON.stringify({ response: responseValue, remember }),
+  });
+}
+
+export async function fetchPendingQuestions(projectId: string): Promise<{
+  questions: QuestionRequest[];
+}> {
+  return request(`/api/projects/${projectId}/questions`);
+}
+
+export async function replyQuestion(
+  projectId: string,
+  requestId: string,
+  answers: string[][]
+): Promise<{ ok: boolean; requestId: string }> {
+  return request(`/api/projects/${projectId}/questions/${encodeURIComponent(requestId)}/reply`, {
+    method: "POST",
+    body: JSON.stringify({ answers }),
+  });
+}
+
+export async function rejectQuestion(
+  projectId: string,
+  requestId: string
+): Promise<{ ok: boolean; requestId: string }> {
+  return request(`/api/projects/${projectId}/questions/${encodeURIComponent(requestId)}/reject`, {
+    method: "POST",
+  });
+}
+
+export async function fetchNotificationSettings(): Promise<NotificationSettings> {
+  return request("/api/notifications/settings");
+}
+
+export async function updateNotificationSettings(input: NotificationSettings): Promise<NotificationSettings & { ok: boolean }> {
+  return request("/api/notifications/settings", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function testNtfyNotification(input?: {
+  title?: string;
+  message?: string;
+  ntfyTopicUrl?: string;
+}): Promise<{ ok: boolean }> {
+  return request("/api/notifications/ntfy/test", {
+    method: "POST",
+    body: JSON.stringify(input ?? {}),
+  });
+}
+
+export async function sendNtfyNotification(input: {
+  title?: string;
+  message: string;
+  ntfyTopicUrl?: string;
+}): Promise<{ ok: boolean }> {
+  return request("/api/notifications/ntfy/send", {
+    method: "POST",
+    body: JSON.stringify(input),
   });
 }
 

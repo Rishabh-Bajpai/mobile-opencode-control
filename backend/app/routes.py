@@ -411,6 +411,79 @@ def _clear_project_pending_approvals(project_id: int) -> None:
     _delete_setting(_project_setting_key(project_id, "pending_approvals"))
 
 
+def _get_project_pending_questions(
+    project_id: int, session_id: str | None = None
+) -> list[dict]:
+    raw = _get_setting(_project_setting_key(project_id, "pending_questions"), "[]") or "[]"
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(parsed, list):
+        return []
+
+    questions: list[dict] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        question_id = str(item.get("id") or "").strip()
+        if not question_id:
+            continue
+        questions.append(item)
+
+    if session_id is None:
+        return questions
+
+    return [
+        item
+        for item in questions
+        if str(item.get("sessionID") or item.get("sessionId") or "").strip()
+        == session_id
+    ]
+
+
+def _set_project_pending_questions(project_id: int, questions: list[dict]) -> None:
+    _set_setting(
+        _project_setting_key(project_id, "pending_questions"),
+        json.dumps(questions),
+    )
+
+
+def _clear_project_pending_questions(project_id: int) -> None:
+    _delete_setting(_project_setting_key(project_id, "pending_questions"))
+
+
+def _get_notification_settings() -> dict[str, str]:
+    channel = (_get_setting("notification_channel", "browser") or "browser").strip().lower()
+    if channel not in {"browser", "ntfy", "both", "off"}:
+        channel = "browser"
+    topic_url = (_get_setting("notification_ntfy_topic_url", "") or "").strip()
+    return {"channel": channel, "ntfyTopicUrl": topic_url}
+
+
+def _set_notification_settings(channel: str, ntfy_topic_url: str) -> None:
+    _set_setting("notification_channel", channel)
+    if ntfy_topic_url:
+        _set_setting("notification_ntfy_topic_url", ntfy_topic_url)
+    else:
+        _delete_setting("notification_ntfy_topic_url")
+
+
+def _send_ntfy_notification(topic_url: str, title: str, message: str) -> None:
+    response = requests.post(
+        topic_url,
+        data=message.encode("utf-8"),
+        headers={
+            "Title": title,
+            "Priority": "4",
+            "Tags": "robot",
+            "Markdown": "yes",
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+
+
 def _get_project_runtime_selection(project_id: int) -> dict[str, str | None]:
     return {
         "model": _get_setting(_project_setting_key(project_id, "model")),
@@ -545,8 +618,11 @@ def _resolve_project_session(
                     db.session.commit()
                 return candidate_session_id
             project.last_session_id = None
-        except requests.HTTPError:
+        except requests.HTTPError as exc:
             project.last_session_id = None
+            db.session.commit()
+            if session_id:
+                raise ValueError("Selected session could not be loaded") from exc
 
         if session_id:
             db.session.commit()
@@ -689,6 +765,41 @@ def _parse_permission_event(event_lines: list[str]) -> tuple[dict | None, str | 
     }, None
 
 
+def _parse_question_event(event_lines: list[str]) -> tuple[dict | None, str | None]:
+    payload = _extract_json_event_payload(event_lines)
+    if not payload:
+        return None, None
+
+    event_type = str(payload.get("type") or "").lower()
+    if event_type == "question.asked":
+        properties = (
+            payload.get("properties")
+            if isinstance(payload.get("properties"), dict)
+            else payload
+        )
+        question_id = str(properties.get("id") or "").strip()
+        if not question_id:
+            return None, None
+        return dict(properties), None
+
+    if event_type in {"question.replied", "question.rejected"}:
+        properties = (
+            payload.get("properties")
+            if isinstance(payload.get("properties"), dict)
+            else payload
+        )
+        question_id = str(
+            properties.get("requestID")
+            or properties.get("requestId")
+            or properties.get("id")
+            or ""
+        ).strip()
+        if question_id:
+            return None, question_id
+
+    return None, None
+
+
 def _update_pending_approvals_from_event(
     project_id: int, session_id: str, event_lines: list[str]
 ) -> None:
@@ -720,6 +831,37 @@ def _update_pending_approvals_from_event(
         _set_project_pending_approvals(project_id, next_approvals)
     else:
         _clear_project_pending_approvals(project_id)
+    db.session.commit()
+
+
+def _update_pending_questions_from_event(
+    project_id: int, session_id: str, event_lines: list[str]
+) -> None:
+    question_item, resolved_question_id = _parse_question_event(event_lines)
+    if question_item is None and resolved_question_id is None:
+        return
+
+    questions = _get_project_pending_questions(project_id)
+    if resolved_question_id:
+        next_questions = [
+            item
+            for item in questions
+            if str(item.get("id") or "").strip() != resolved_question_id
+        ]
+    else:
+        assert question_item is not None
+        if not question_item.get("sessionID"):
+            question_item["sessionID"] = session_id
+        question_id = str(question_item.get("id") or "").strip()
+        next_questions = [
+            item for item in questions if str(item.get("id") or "").strip() != question_id
+        ]
+        next_questions.append(question_item)
+
+    if next_questions:
+        _set_project_pending_questions(project_id, next_questions)
+    else:
+        _clear_project_pending_questions(project_id)
     db.session.commit()
 
 
@@ -837,6 +979,70 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             return jsonify({"commands": normalized})
         except Exception as exc:
             return jsonify({"error": f"Failed to load commands: {exc}"}), 502
+
+    @app.get("/api/notifications/settings")
+    @auth_required
+    def get_notification_settings():
+        current = _get_notification_settings()
+        if not current["ntfyTopicUrl"] and settings.notification_ntfy_topic_url.strip():
+            current["ntfyTopicUrl"] = settings.notification_ntfy_topic_url.strip()
+        return jsonify(current)
+
+    @app.put("/api/notifications/settings")
+    @auth_required
+    def update_notification_settings():
+        body = request.get_json(silent=True) or {}
+        channel = str(body.get("channel") or "browser").strip().lower()
+        if channel not in {"browser", "ntfy", "both", "off"}:
+            return jsonify({"error": "channel must be browser, ntfy, both, or off"}), 400
+        ntfy_topic_url = str(body.get("ntfyTopicUrl") or "").strip()
+        _set_notification_settings(channel, ntfy_topic_url)
+        db.session.commit()
+        return jsonify({"ok": True, "channel": channel, "ntfyTopicUrl": ntfy_topic_url})
+
+    @app.post("/api/notifications/ntfy/test")
+    @auth_required
+    def test_ntfy_notification():
+        body = request.get_json(silent=True) or {}
+        title = str(body.get("title") or "OpenCode Controller").strip() or "OpenCode Controller"
+        message = (
+            str(body.get("message") or "Test notification from mobile-opencode-control").strip()
+            or "Test notification from mobile-opencode-control"
+        )
+        topic_url = str(body.get("ntfyTopicUrl") or "").strip()
+        if not topic_url:
+            current = _get_notification_settings()
+            topic_url = current["ntfyTopicUrl"] or settings.notification_ntfy_topic_url.strip()
+        if not topic_url:
+            return jsonify({"error": "ntfy topic URL is not configured"}), 400
+
+        try:
+            _send_ntfy_notification(topic_url, title, message)
+            return jsonify({"ok": True})
+        except Exception as exc:
+            return jsonify({"error": f"Failed to send ntfy notification: {exc}"}), 502
+
+    @app.post("/api/notifications/ntfy/send")
+    @auth_required
+    def send_ntfy_notification():
+        body = request.get_json(silent=True) or {}
+        title = str(body.get("title") or "OpenCode Controller").strip() or "OpenCode Controller"
+        message = str(body.get("message") or "").strip()
+        if not message:
+            return jsonify({"error": "message is required"}), 400
+
+        topic_url = str(body.get("ntfyTopicUrl") or "").strip()
+        if not topic_url:
+            current = _get_notification_settings()
+            topic_url = current["ntfyTopicUrl"] or settings.notification_ntfy_topic_url.strip()
+        if not topic_url:
+            return jsonify({"error": "ntfy topic URL is not configured"}), 400
+
+        try:
+            _send_ntfy_notification(topic_url, title, message)
+            return jsonify({"ok": True})
+        except Exception as exc:
+            return jsonify({"error": f"Failed to send ntfy notification: {exc}"}), 502
 
     @app.get("/api/projects/<int:project_id>/runtime")
     @auth_required
@@ -1079,6 +1285,9 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
                 create_if_missing=False,
             )
             session = opencode_client.get_session(session_id)
+            project.last_session_id = session_id
+            project.last_activity_at = _utc_now()
+            db.session.commit()
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:
@@ -2105,7 +2314,17 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             return jsonify({"error": "Project not found"}), 404
 
         try:
-            session_id = _ensure_project_session(project, opencode_client)
+            body = request.get_json(silent=True) or {}
+            requested_session_id = str(body.get("sessionId") or "").strip() or None
+            if requested_session_id:
+                session_id = _resolve_project_session(
+                    project,
+                    opencode_client,
+                    session_id=requested_session_id,
+                    create_if_missing=False,
+                )
+            else:
+                session_id = _ensure_project_session(project, opencode_client)
             ok = opencode_client.abort_session(session_id, directory=project.path)
             project.session_status = "idle"
             project.last_activity_at = _utc_now()
@@ -2126,14 +2345,11 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         try:
             session_id_param = request.args.get("session_id", "").strip()
             if session_id_param:
-                try:
-                    session = opencode_client.get_session(session_id_param)
-                    if _session_matches_project(project, session):
-                        session_id = session_id_param
-                    else:
-                        session_id = _ensure_project_session(project, opencode_client)
-                except Exception:
-                    session_id = _ensure_project_session(project, opencode_client)
+                session = opencode_client.get_session(session_id_param)
+                if _session_matches_project(project, session):
+                    session_id = session_id_param
+                else:
+                    return jsonify({"error": "Selected session does not belong to this project"}), 400
             else:
                 session_id = _ensure_project_session(project, opencode_client)
             limit = int(request.args.get("limit", "100"))
@@ -2169,11 +2385,20 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
 
         body = request.get_json(silent=True) or {}
         text = str(body.get("text") or "").strip()
+        requested_session_id = str(body.get("sessionId") or "").strip() or None
         if not text:
             return jsonify({"error": "Message text is required"}), 400
 
         try:
-            session_id = _ensure_project_session(project, opencode_client)
+            if requested_session_id:
+                session_id = _resolve_project_session(
+                    project,
+                    opencode_client,
+                    session_id=requested_session_id,
+                    create_if_missing=False,
+                )
+            else:
+                session_id = _ensure_project_session(project, opencode_client)
             runtime_selection = _get_project_runtime_selection(project.id)
             project.session_status = "running"
             db.session.commit()
@@ -2212,6 +2437,7 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
 
         body = request.get_json(silent=True) or {}
         command = str(body.get("command") or "").strip().lstrip("/")
+        requested_session_id = str(body.get("sessionId") or "").strip() or None
         arguments = body.get("arguments") or []
 
         if not command:
@@ -2222,7 +2448,15 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         safe_args = [str(arg) for arg in arguments]
 
         try:
-            session_id = _ensure_project_session(project, opencode_client)
+            if requested_session_id:
+                session_id = _resolve_project_session(
+                    project,
+                    opencode_client,
+                    session_id=requested_session_id,
+                    create_if_missing=False,
+                )
+            else:
+                session_id = _ensure_project_session(project, opencode_client)
 
             if command in LOCAL_SESSION_COMMANDS:
                 opencode_client.abort_session(session_id, directory=project.path)
@@ -2317,6 +2551,37 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             {"approvals": _get_project_pending_approvals(project.id, session_id)}
         )
 
+    @app.get("/api/projects/<int:project_id>/questions")
+    @auth_required
+    def get_project_questions(project_id: int):
+        project = Project.query.get(project_id)
+        if project is None:
+            return jsonify({"error": "Project not found"}), 404
+
+        session_id = project.last_session_id
+        if session_id:
+            try:
+                session_id = _resolve_project_session(
+                    project,
+                    opencode_client,
+                    session_id=session_id,
+                    create_if_missing=False,
+                )
+            except Exception:
+                session_id = project.last_session_id
+
+        try:
+            upstream_questions = opencode_client.list_questions(directory=project.path)
+            if upstream_questions:
+                _set_project_pending_questions(project.id, upstream_questions)
+            else:
+                _clear_project_pending_questions(project.id)
+            db.session.commit()
+        except Exception:
+            pass
+
+        return jsonify({"questions": _get_project_pending_questions(project.id, session_id)})
+
     @app.get("/api/projects/<int:project_id>/stream")
     @auth_required
     def stream_project_events(project_id: int):
@@ -2332,6 +2597,10 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
         db.session.remove()
 
         def _stream():
+            ready_payload = json.dumps(
+                {"sessionId": session_id, "event": ["event: stream.ready"]}
+            )
+            yield f"data: {ready_payload}\n\n"
             try:
                 with requests.get(
                     f"{opencode_client.base_url}/global/event",
@@ -2353,6 +2622,9 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
                                 event_lines, session_id
                             ):
                                 _update_pending_approvals_from_event(
+                                    project.id, session_id, event_lines
+                                )
+                                _update_pending_questions_from_event(
                                     project.id, session_id, event_lines
                                 )
                                 data = json.dumps(
@@ -2484,3 +2756,67 @@ def register_api_routes(app, settings, opencode_client, scheduler, voice_runtime
             project.session_status = "error"
             db.session.commit()
             return jsonify({"error": f"Failed to respond to permission: {exc}"}), 502
+
+    @app.post("/api/projects/<int:project_id>/questions/<request_id>/reply")
+    @auth_required
+    def reply_project_question(project_id: int, request_id: str):
+        project = Project.query.get(project_id)
+        if project is None:
+            return jsonify({"error": "Project not found"}), 404
+
+        body = request.get_json(silent=True) or {}
+        answers = body.get("answers")
+        if not isinstance(answers, list):
+            return jsonify({"error": "answers must be an array"}), 400
+
+        normalized_answers: list[list[str]] = []
+        for answer in answers:
+            if not isinstance(answer, list):
+                return jsonify({"error": "answers must be an array of string arrays"}), 400
+            normalized_answers.append([str(item) for item in answer])
+
+        try:
+            ok = opencode_client.reply_question(
+                request_id=request_id,
+                answers=normalized_answers,
+                directory=project.path,
+            )
+            questions = _get_project_pending_questions(project.id)
+            next_questions = [
+                item for item in questions if str(item.get("id") or "").strip() != request_id
+            ]
+            if next_questions:
+                _set_project_pending_questions(project.id, next_questions)
+            else:
+                _clear_project_pending_questions(project.id)
+            project.last_activity_at = _utc_now()
+            db.session.commit()
+            return jsonify({"ok": ok, "requestId": request_id})
+        except Exception as exc:
+            return jsonify({"error": f"Failed to respond to question: {exc}"}), 502
+
+    @app.post("/api/projects/<int:project_id>/questions/<request_id>/reject")
+    @auth_required
+    def reject_project_question(project_id: int, request_id: str):
+        project = Project.query.get(project_id)
+        if project is None:
+            return jsonify({"error": "Project not found"}), 404
+
+        try:
+            ok = opencode_client.reject_question(
+                request_id=request_id,
+                directory=project.path,
+            )
+            questions = _get_project_pending_questions(project.id)
+            next_questions = [
+                item for item in questions if str(item.get("id") or "").strip() != request_id
+            ]
+            if next_questions:
+                _set_project_pending_questions(project.id, next_questions)
+            else:
+                _clear_project_pending_questions(project.id)
+            project.last_activity_at = _utc_now()
+            db.session.commit()
+            return jsonify({"ok": ok, "requestId": request_id})
+        except Exception as exc:
+            return jsonify({"error": f"Failed to reject question: {exc}"}), 502

@@ -11,8 +11,10 @@ import {
   fetchAppState,
   fetchLanUrl,
   fetchMessages,
+  fetchNotificationSettings,
   fetchOpenCodeCommands,
   fetchPendingApprovals,
+  fetchPendingQuestions,
   fetchProjectRuntime,
   fetchProjectSessions,
   fetchProjectFileContent,
@@ -25,6 +27,8 @@ import {
   initProjectPrd,
   pauseScheduledTask,
   previewScheduledTask,
+  rejectQuestion,
+  replyQuestion,
   getAuthState,
   login,
   logout,
@@ -36,22 +40,28 @@ import {
   saveScheduledTask,
   selectProject,
   sendMessage,
+  sendNtfyNotification,
   speakText,
+  testNtfyNotification,
   projectArchiveDownloadUrl,
   projectFileDownloadUrl,
   syncProjects,
   transcribeAudio,
+  updateNotificationSettings,
   updateProjectRuntime,
   updateProjectSession,
 } from "./api";
 import type {
   ChatMessage,
+  NotificationChannel,
+  NotificationSettings,
   OpenCodeCommand,
   Project,
   ProjectFileContent,
   ProjectFileEntry,
   ProjectSession,
   PrdData,
+  QuestionRequest,
   RuntimeAgentOption,
   RuntimeModelOption,
   ScheduledTask,
@@ -66,6 +76,21 @@ interface ApprovalRequest {
   title: string;
   details: string;
   createdAt: string;
+}
+
+interface QuestionAnswerDraft {
+  optionSelections: Record<number, string[]>;
+  customValues: Record<number, string>;
+}
+
+interface FileTreeNode {
+  entry: ProjectFileEntry;
+  children: FileTreeNode[];
+}
+
+interface FlattenedFileRow {
+  entry: ProjectFileEntry;
+  depth: number;
 }
 
 interface TelemetryMarker {
@@ -206,7 +231,7 @@ function RuntimeControls({
   );
 }
 
-function SessionControls({
+function SessionTabs({
   sessions,
   activeSessionId,
   loading,
@@ -237,35 +262,44 @@ function SessionControls({
     : null;
 
   return (
-    <div className="session-controls">
-      <label>
-        <span>Session</span>
-        <select
-          value={activeSessionId ?? ""}
-          onChange={(event) => onChange(event.currentTarget.value)}
-          disabled={loading || switching || sessions.length === 0}
-        >
-          <option value="">{loading ? "Loading sessions..." : "No session selected"}</option>
-          {sortedSessions.map((session) => {
-            return (
-              <option key={session.id} value={session.id}>
-                {formatSessionOptionLabel(session, activeSessionId)}
-              </option>
-            );
-          })}
-        </select>
-      </label>
-      <button type="button" className="secondary-button" onClick={onCreate} disabled={loading || switching}>
-        {switching ? "Working..." : "New session"}
-      </button>
-      <button
-        type="button"
-        className="secondary-button session-delete-button"
-        onClick={onDelete}
-        disabled={loading || switching || !activeSession}
-      >
-        Delete session
-      </button>
+    <div className="session-tabs-shell">
+      <div className="session-tabs-head">
+        <span>Sessions</span>
+        <div className="session-tabs-actions">
+          <button type="button" className="secondary-button" onClick={onCreate} disabled={loading || switching}>
+            {switching ? "Working..." : "New session"}
+          </button>
+          <button
+            type="button"
+            className="secondary-button session-delete-button"
+            onClick={onDelete}
+            disabled={loading || switching || !activeSession}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+      <div className="session-tabs" role="tablist" aria-label="Project sessions">
+        {sortedSessions.length === 0 ? (
+          <div className="session-tabs-empty">{loading ? "Loading sessions..." : "No session selected"}</div>
+        ) : (
+          sortedSessions.map((session) => (
+            <button
+              key={session.id}
+              type="button"
+              role="tab"
+              aria-selected={session.id === activeSessionId}
+              className={session.id === activeSessionId ? "active" : ""}
+              onClick={() => onChange(session.id)}
+              disabled={loading || switching}
+              title={buildSessionTabLabel(session)}
+            >
+              <strong>{session.title || "Untitled session"}</strong>
+              <small>{formatSessionTimestamp(session.updatedAt ?? session.createdAt)}</small>
+            </button>
+          ))
+        )}
+      </div>
       {activeSession ? (
         <div className="session-controls-meta">
           {switching ? (
@@ -295,14 +329,30 @@ function NotificationControls({
   supported,
   enabled,
   permission,
+  channel,
+  ntfyTopicUrl,
+  saving,
+  testing,
   onEnable,
   onDisable,
+  onChannelChange,
+  onNtfyTopicUrlChange,
+  onSaveSettings,
+  onTestNtfy,
 }: {
   supported: boolean;
   enabled: boolean;
   permission: NotificationPermission | "unsupported";
+  channel: NotificationChannel;
+  ntfyTopicUrl: string;
+  saving: boolean;
+  testing: boolean;
   onEnable: () => void;
   onDisable: () => void;
+  onChannelChange: (value: NotificationChannel) => void;
+  onNtfyTopicUrlChange: (value: string) => void;
+  onSaveSettings: () => void;
+  onTestNtfy: () => void;
 }) {
   const statusLabel = !supported
     ? "Browser notifications are not supported here."
@@ -321,12 +371,35 @@ function NotificationControls({
         <span>Final agent replies in the background</span>
       </div>
       <small>{statusLabel}</small>
+      <label className="notification-setting-field">
+        <span>Delivery channel</span>
+        <select value={channel} onChange={(event) => onChannelChange(event.currentTarget.value as NotificationChannel)}>
+          <option value="browser">Browser</option>
+          <option value="ntfy">ntfy</option>
+          <option value="both">Both</option>
+          <option value="off">Off</option>
+        </select>
+      </label>
+      <label className="notification-setting-field">
+        <span>ntfy topic URL</span>
+        <input
+          value={ntfyTopicUrl}
+          onChange={(event) => onNtfyTopicUrlChange(event.currentTarget.value)}
+          placeholder="https://ntfy.example.com/topic"
+        />
+      </label>
       <div className="notification-actions">
         <button type="button" className="secondary-button" onClick={onEnable} disabled={!supported || enabled}>
           Turn on
         </button>
         <button type="button" className="secondary-button" onClick={onDisable} disabled={!enabled}>
           Turn off
+        </button>
+        <button type="button" className="secondary-button" onClick={onSaveSettings} disabled={saving}>
+          {saving ? "Saving..." : "Save settings"}
+        </button>
+        <button type="button" className="secondary-button" onClick={onTestNtfy} disabled={testing || !ntfyTopicUrl.trim()}>
+          {testing ? "Testing..." : "Test ntfy"}
         </button>
       </div>
     </div>
@@ -366,6 +439,82 @@ function InstallControls({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function QuestionCard({
+  question,
+  draft,
+  responding,
+  onToggleOption,
+  onCustomValueChange,
+  onSubmit,
+  onReject,
+}: {
+  question: QuestionRequest;
+  draft: QuestionAnswerDraft;
+  responding: boolean;
+  onToggleOption: (questionIndex: number, optionLabel: string, multiple: boolean) => void;
+  onCustomValueChange: (questionIndex: number, value: string) => void;
+  onSubmit: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <article className="question-card">
+      <header>
+        <strong>Input requested</strong>
+        <span>{question.id}</span>
+      </header>
+      <div className="question-card-body">
+        {question.questions.map((info, questionIndex) => {
+          const selectedValues = draft.optionSelections[questionIndex] ?? [];
+          const customValue = draft.customValues[questionIndex] ?? "";
+          return (
+            <div key={`${question.id}:${questionIndex}`} className="question-block">
+              <div className="question-block-head">
+                <strong>{info.header}</strong>
+                <small>{info.question}</small>
+              </div>
+              <div className="question-options">
+                {info.options.map((option) => {
+                  const selected = selectedValues.includes(option.label);
+                  return (
+                    <label key={option.label} className={`question-option ${selected ? "selected" : ""}`}>
+                      <input
+                        type={info.multiple ? "checkbox" : "radio"}
+                        name={`${question.id}:${questionIndex}`}
+                        checked={selected}
+                        onChange={() => onToggleOption(questionIndex, option.label, Boolean(info.multiple))}
+                      />
+                      <span>
+                        <strong>{option.label}</strong>
+                        <small>{option.description}</small>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {info.custom !== false ? (
+                <input
+                  className="question-custom-input"
+                  value={customValue}
+                  onChange={(event) => onCustomValueChange(questionIndex, event.currentTarget.value)}
+                  placeholder="Type your own answer"
+                />
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="question-actions">
+        <button type="button" onClick={onSubmit} disabled={responding}>
+          {responding ? "Submitting..." : "Submit"}
+        </button>
+        <button type="button" className="danger" onClick={onReject} disabled={responding}>
+          Dismiss
+        </button>
+      </div>
+    </article>
   );
 }
 
@@ -1170,6 +1319,150 @@ function sortSessionsForDisplay(sessions: ProjectSession[], activeSessionId: str
     const rightTime = new Date(right.updatedAt ?? right.createdAt ?? 0).getTime();
     return rightTime - leftTime;
   });
+}
+
+function buildSessionTabLabel(session: ProjectSession) {
+  const title = session.title || "Untitled session";
+  const timestamp = formatSessionTimestamp(session.updatedAt ?? session.createdAt);
+  return `${title} · ${timestamp}`;
+}
+
+function buildFileTree(entries: ProjectFileEntry[]): FileTreeNode[] {
+  const sorted = [...entries].sort((left, right) => {
+    const leftParent = left.path.includes("/") ? left.path.slice(0, left.path.lastIndexOf("/")) : "";
+    const rightParent = right.path.includes("/") ? right.path.slice(0, right.path.lastIndexOf("/")) : "";
+
+    if (leftParent === rightParent) {
+      if (left.isDir !== right.isDir) {
+        return left.isDir ? -1 : 1;
+      }
+
+      return left.name.localeCompare(right.name, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+    }
+
+    return left.path.localeCompare(right.path, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+
+  const roots: FileTreeNode[] = [];
+  const nodeByPath = new Map<string, FileTreeNode>();
+
+  for (const entry of sorted) {
+    const node: FileTreeNode = { entry, children: [] };
+    nodeByPath.set(entry.path, node);
+    const parentPath = entry.path.includes("/") ? entry.path.slice(0, entry.path.lastIndexOf("/")) : "";
+    const parentNode = parentPath ? nodeByPath.get(parentPath) ?? null : null;
+    if (parentNode) {
+      parentNode.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  return roots;
+}
+
+function flattenFileTree(nodes: FileTreeNode[], collapsedDirectories: Set<string>, depth = 0): FlattenedFileRow[] {
+  const rows: FlattenedFileRow[] = [];
+  for (const node of nodes) {
+    rows.push({ entry: node.entry, depth });
+    if (node.entry.isDir && !collapsedDirectories.has(node.entry.path)) {
+      rows.push(...flattenFileTree(node.children, collapsedDirectories, depth + 1));
+    }
+  }
+  return rows;
+}
+
+function removeQuestionFromList(questions: QuestionRequest[], requestId: string) {
+  return questions.filter((question) => question.id !== requestId);
+}
+
+function buildInitialQuestionDraft(question: QuestionRequest): QuestionAnswerDraft {
+  const optionSelections: Record<number, string[]> = {};
+  const customValues: Record<number, string> = {};
+  question.questions.forEach((_, index) => {
+    optionSelections[index] = [];
+    customValues[index] = "";
+  });
+  return { optionSelections, customValues };
+}
+
+function buildQuestionReplyAnswers(question: QuestionRequest, draft: QuestionAnswerDraft): string[][] {
+  return question.questions.map((info, index) => {
+    const selected = draft.optionSelections[index] ?? [];
+    const customValue = (draft.customValues[index] ?? "").trim();
+    if (info.multiple) {
+      return customValue ? [...selected, customValue] : selected;
+    }
+    if (customValue) {
+      return [customValue];
+    }
+    return selected.slice(0, 1);
+  });
+}
+
+function parseQuestionFromStreamData(data: string): {
+  request: QuestionRequest | null;
+  resolvedQuestionId: string | null;
+} {
+  try {
+    const wrapper = JSON.parse(data) as { event?: string[] };
+    const lines = Array.isArray(wrapper.event) ? wrapper.event : [];
+    const payload = extractJsonFromEventLines(lines);
+    if (!payload) {
+      return { request: null, resolvedQuestionId: null };
+    }
+
+    const typeValue = String(payload.type || "").toLowerCase();
+    const properties =
+      payload.properties && typeof payload.properties === "object"
+        ? (payload.properties as Record<string, unknown>)
+        : payload;
+
+    if (typeValue === "question.asked") {
+      const id = typeof properties.id === "string" ? properties.id : null;
+      const sessionID =
+        typeof properties.sessionID === "string"
+          ? properties.sessionID
+          : typeof properties.sessionId === "string"
+            ? properties.sessionId
+            : null;
+      const questions = Array.isArray(properties.questions) ? properties.questions : null;
+      if (!id || !sessionID || !questions) {
+        return { request: null, resolvedQuestionId: null };
+      }
+      return {
+        request: {
+          id,
+          sessionID,
+          questions: questions as QuestionRequest["questions"],
+          tool: properties.tool && typeof properties.tool === "object" ? (properties.tool as QuestionRequest["tool"]) : undefined,
+        },
+        resolvedQuestionId: null,
+      };
+    }
+
+    if (typeValue === "question.replied" || typeValue === "question.rejected") {
+      const requestId =
+        typeof properties.requestID === "string"
+          ? properties.requestID
+          : typeof properties.requestId === "string"
+            ? properties.requestId
+            : typeof properties.id === "string"
+              ? properties.id
+              : null;
+      return { request: null, resolvedQuestionId: requestId };
+    }
+  } catch {
+    // ignore malformed event frames
+  }
+
+  return { request: null, resolvedQuestionId: null };
 }
 
 type TimelineEntry =
@@ -2270,28 +2563,10 @@ function ProjectFilesPanel({
       seen.add(key);
       unique.push(entry);
     }
-    unique.sort((left, right) => {
-      const leftParent = left.path.includes("/") ? left.path.slice(0, left.path.lastIndexOf("/")) : "";
-      const rightParent = right.path.includes("/") ? right.path.slice(0, right.path.lastIndexOf("/")) : "";
-
-      if (leftParent === rightParent) {
-        if (left.isDir !== right.isDir) {
-          return left.isDir ? -1 : 1;
-        }
-
-        return left.name.localeCompare(right.name, undefined, {
-          numeric: true,
-          sensitivity: "base",
-        });
-      }
-
-      return left.path.localeCompare(right.path, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
-    });
     return unique;
   }, [entries]);
+
+  const fileTree = useMemo(() => buildFileTree(dedupedEntries), [dedupedEntries]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -2325,8 +2600,15 @@ function ProjectFilesPanel({
   }, [mobile]);
 
   useEffect(() => {
+    if (dedupedEntries.length === 0) {
+      setCollapsedDirectories(new Set());
+      return;
+    }
     setCollapsedDirectories((current) => {
-      const next = new Set(current);
+      if (current.size > 0) {
+        return current;
+      }
+      const next = new Set<string>();
       for (const entry of dedupedEntries) {
         if (entry.isDir && !loadedDirectories.includes(entry.path)) {
           next.add(entry.path);
@@ -2343,27 +2625,11 @@ function ProjectFilesPanel({
     return dedupedEntries.filter((entry) => entry.path.toLowerCase().includes(normalizedQuery));
   }, [dedupedEntries, normalizedQuery]);
 
+  const visibleTree = useMemo(() => buildFileTree(visibleEntries), [visibleEntries]);
+
   const flattenedEntries = useMemo(() => {
-    const rows: ProjectFileEntry[] = [];
-    for (const entry of visibleEntries) {
-      if (entry.depth > 0) {
-        const segments = entry.path.split("/");
-        let hidden = false;
-        for (let index = 1; index < segments.length; index += 1) {
-          const parentPath = segments.slice(0, index).join("/");
-          if (collapsedDirectories.has(parentPath)) {
-            hidden = true;
-            break;
-          }
-        }
-        if (hidden) {
-          continue;
-        }
-      }
-      rows.push(entry);
-    }
-    return rows;
-  }, [visibleEntries, collapsedDirectories]);
+    return flattenFileTree(visibleTree, collapsedDirectories);
+  }, [visibleTree, collapsedDirectories]);
 
   const rowHeight = 34;
   const visibleWindow = mobile ? 10 : 18;
@@ -2442,36 +2708,36 @@ function ProjectFilesPanel({
 
     if (event.key === "Enter") {
       event.preventDefault();
-      if (focusedEntry.isDir) {
-        toggleDirectory(focusedEntry.path);
+      if (focusedEntry.entry.isDir) {
+        toggleDirectory(focusedEntry.entry.path);
       } else {
-        onSelectFile(focusedEntry.path);
+        onSelectFile(focusedEntry.entry.path);
       }
       return;
     }
 
-    if (event.key === "ArrowRight" && focusedEntry.isDir) {
+    if (event.key === "ArrowRight" && focusedEntry.entry.isDir) {
       event.preventDefault();
-      if (collapsedDirectories.has(focusedEntry.path)) {
-        toggleDirectory(focusedEntry.path);
-      } else if (!loadedDirectories.includes(focusedEntry.path)) {
-        void onExpandDirectory(focusedEntry.path);
+      if (collapsedDirectories.has(focusedEntry.entry.path)) {
+        toggleDirectory(focusedEntry.entry.path);
+      } else if (!loadedDirectories.includes(focusedEntry.entry.path)) {
+        void onExpandDirectory(focusedEntry.entry.path);
       }
       return;
     }
 
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      if (focusedEntry.isDir && !collapsedDirectories.has(focusedEntry.path)) {
-        toggleDirectory(focusedEntry.path);
+      if (focusedEntry.entry.isDir && !collapsedDirectories.has(focusedEntry.entry.path)) {
+        toggleDirectory(focusedEntry.entry.path);
         return;
       }
-      const parentPath = findParentDirectoryPath(focusedEntry.path);
+      const parentPath = findParentDirectoryPath(focusedEntry.entry.path);
       if (!parentPath) {
         return;
       }
       const parentIndex = flattenedEntries.findIndex(
-        (entry) => entry.isDir && entry.path === parentPath
+        (entry) => entry.entry.isDir && entry.entry.path === parentPath
       );
       if (parentIndex >= 0) {
         setFocusedIndex(parentIndex);
@@ -2617,15 +2883,15 @@ function ProjectFilesPanel({
             <div className="project-files-canvas" style={{ height: `${totalHeight}px` }}>
               {virtualRows.map((entry, index) => {
                 const absoluteIndex = startIndex + index;
-                const isSelected = entry.path === selectedFilePath;
-                if (entry.isDir) {
-                  const collapsed = collapsedDirectories.has(entry.path);
-                  const directoryLoading = loadingDirectories.includes(entry.path);
-                  const directoryLoaded = loadedDirectories.includes(entry.path);
+                const isSelected = entry.entry.path === selectedFilePath;
+                if (entry.entry.isDir) {
+                  const collapsed = collapsedDirectories.has(entry.entry.path);
+                  const directoryLoading = loadingDirectories.includes(entry.entry.path);
+                  const directoryLoaded = loadedDirectories.includes(entry.entry.path);
                   return (
                     <button
                       type="button"
-                      key={`${entry.path}:d:${absoluteIndex}`}
+                      key={`${entry.entry.path}:d:${absoluteIndex}`}
                       className={`project-file-row dir ${absoluteIndex === focusedIndex ? "focused" : ""}`}
                       style={{
                         top: `${absoluteIndex * rowHeight}px`,
@@ -2633,11 +2899,11 @@ function ProjectFilesPanel({
                       }}
                       onClick={() => {
                         setFocusedIndex(absoluteIndex);
-                        toggleDirectory(entry.path);
+                        toggleDirectory(entry.entry.path);
                       }}
                     >
                       <span>{collapsed ? "▸" : "▾"}</span>
-                      <strong>{entry.name}</strong>
+                      <strong>{entry.entry.name}</strong>
                       <small>{directoryLoading ? "loading" : directoryLoaded ? "folder" : "expand"}</small>
                     </button>
                   );
@@ -2646,7 +2912,7 @@ function ProjectFilesPanel({
                 return (
                   <button
                     type="button"
-                    key={`${entry.path}:f:${absoluteIndex}`}
+                    key={`${entry.entry.path}:f:${absoluteIndex}`}
                     className={`project-file-row file ${isSelected ? "active" : ""} ${absoluteIndex === focusedIndex ? "focused" : ""}`}
                     style={{
                       top: `${absoluteIndex * rowHeight}px`,
@@ -2654,12 +2920,12 @@ function ProjectFilesPanel({
                     }}
                     onClick={() => {
                       setFocusedIndex(absoluteIndex);
-                      onSelectFile(entry.path);
+                      onSelectFile(entry.entry.path);
                     }}
                   >
                     <span>📄</span>
-                    <strong>{entry.name}</strong>
-                    <small>{formatFileSize(entry.size)}</small>
+                    <strong>{entry.entry.name}</strong>
+                    <small>{formatFileSize(entry.entry.size)}</small>
                   </button>
                 );
               })}
@@ -3414,6 +3680,9 @@ export function App() {
   const [reconnectStartedAtMs, setReconnectStartedAtMs] = useState<number | null>(null);
   const [reconnectAttemptCount, setReconnectAttemptCount] = useState(0);
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
+  const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([]);
+  const [questionDrafts, setQuestionDrafts] = useState<Record<string, QuestionAnswerDraft>>({});
+  const [respondingQuestionId, setRespondingQuestionId] = useState<string | null>(null);
   const [respondingPermissionId, setRespondingPermissionId] = useState<string | null>(null);
 
   const [taskLoading, setTaskLoading] = useState(false);
@@ -3478,6 +3747,10 @@ export function App() {
   const [expandedActivityEntries, setExpandedActivityEntries] = useState<Record<string, boolean>>({});
   const [expandedMessageEntries, setExpandedMessageEntries] = useState<Record<string, boolean>>({});
   const [expandedPartEntries, setExpandedPartEntries] = useState<Record<string, boolean>>({});
+  const [notificationChannel, setNotificationChannel] = useState<NotificationChannel>("browser");
+  const [ntfyTopicUrl, setNtfyTopicUrl] = useState("");
+  const [notificationSettingsSaving, setNotificationSettingsSaving] = useState(false);
+  const [notificationTesting, setNotificationTesting] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -3569,10 +3842,12 @@ export function App() {
   const pendingMessageRefreshRef = useRef<string | null>(null);
   const pendingScrollAnchorRef = useRef<{ entryId: string; top: number } | null>(null);
   const lastFinalAssistantMessageIdByChatRef = useRef<Record<string, string>>({});
+  const awaitingFinalReplyNotificationByChatRef = useRef<Record<string, boolean>>({});
   const previousActivityEntriesRef = useRef<Array<{ stateKey: string; childIds: string[] }>>([]);
   const taskLoadRequestRef = useRef(0);
   const sessionLoadRequestRef = useRef(0);
   const projectFilePreviewRequestRef = useRef(0);
+  const projectFileLoadGenerationRef = useRef(0);
 
   function addTelemetryMarker(event: string, payload?: Record<string, unknown>) {
     const marker: TelemetryMarker = {
@@ -3749,6 +4024,150 @@ export function App() {
     setNotificationsEnabled(false);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(NOTIFICATION_PREFERENCE_KEY, "false");
+    }
+  }
+
+  function handleQuestionOptionToggle(
+    requestId: string,
+    questionIndex: number,
+    optionLabel: string,
+    multiple: boolean
+  ) {
+    setQuestionDrafts((current) => {
+      const baseDraft = current[requestId];
+      if (!baseDraft) {
+        return current;
+      }
+      const currentSelections = baseDraft.optionSelections[questionIndex] ?? [];
+      const nextSelections = multiple
+        ? currentSelections.includes(optionLabel)
+          ? currentSelections.filter((item) => item !== optionLabel)
+          : [...currentSelections, optionLabel]
+        : currentSelections.includes(optionLabel)
+          ? []
+          : [optionLabel];
+      return {
+        ...current,
+        [requestId]: {
+          optionSelections: {
+            ...baseDraft.optionSelections,
+            [questionIndex]: nextSelections,
+          },
+          customValues: {
+            ...baseDraft.customValues,
+          },
+        },
+      };
+    });
+  }
+
+  function handleQuestionCustomValueChange(requestId: string, questionIndex: number, value: string) {
+    setQuestionDrafts((current) => {
+      const baseDraft = current[requestId];
+      if (!baseDraft) {
+        return current;
+      }
+      return {
+        ...current,
+        [requestId]: {
+          optionSelections: {
+            ...baseDraft.optionSelections,
+          },
+          customValues: {
+            ...baseDraft.customValues,
+            [questionIndex]: value,
+          },
+        },
+      };
+    });
+  }
+
+  async function handleReplyQuestion(question: QuestionRequest) {
+    if (!activeProjectId || respondingQuestionId) {
+      return;
+    }
+
+    const draft = questionDrafts[question.id] ?? buildInitialQuestionDraft(question);
+    setRespondingQuestionId(question.id);
+    setProjectError(null);
+    try {
+      await replyQuestion(activeProjectId, question.id, buildQuestionReplyAnswers(question, draft));
+      setPendingQuestions((current) => removeQuestionFromList(current, question.id));
+      setQuestionDrafts((current) => {
+        const next = { ...current };
+        delete next[question.id];
+        return next;
+      });
+      scheduleStreamRefresh(activeProjectId);
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : "Failed to submit question response");
+    } finally {
+      setRespondingQuestionId(null);
+    }
+  }
+
+  async function handleRejectQuestion(question: QuestionRequest) {
+    if (!activeProjectId || respondingQuestionId) {
+      return;
+    }
+
+    setRespondingQuestionId(question.id);
+    setProjectError(null);
+    try {
+      await rejectQuestion(activeProjectId, question.id);
+      setPendingQuestions((current) => removeQuestionFromList(current, question.id));
+      setQuestionDrafts((current) => {
+        const next = { ...current };
+        delete next[question.id];
+        return next;
+      });
+      scheduleStreamRefresh(activeProjectId);
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : "Failed to dismiss question");
+    } finally {
+      setRespondingQuestionId(null);
+    }
+  }
+
+  async function handleSaveNotificationSettings() {
+    setNotificationSettingsSaving(true);
+    setProjectError(null);
+    try {
+      const nextChannel = notificationsEnabled ? notificationChannel : "off";
+      const result = await updateNotificationSettings({
+        channel: nextChannel,
+        ntfyTopicUrl: ntfyTopicUrl.trim(),
+      });
+      setNotificationChannel(result.channel);
+      setNtfyTopicUrl(result.ntfyTopicUrl);
+      const nextEnabled = result.channel !== "off";
+      setNotificationsEnabled(nextEnabled);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(NOTIFICATION_PREFERENCE_KEY, nextEnabled ? "true" : "false");
+      }
+      if (result.channel === "browser" || result.channel === "both") {
+        await requestBrowserNotificationPermission();
+      }
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : "Failed to save notification settings");
+    } finally {
+      setNotificationSettingsSaving(false);
+    }
+  }
+
+  async function handleTestNtfy() {
+    setNotificationTesting(true);
+    setProjectError(null);
+    try {
+      await testNtfyNotification({
+        title: activeProject?.name ? `${activeProject.name} notification test` : "OpenCode Controller",
+        message: "Test notification from mobile-opencode-control",
+        ntfyTopicUrl: ntfyTopicUrl.trim() || undefined,
+      });
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : "Failed to send ntfy test notification");
+    } finally {
+      setNotificationTesting(false);
     }
   }
 
@@ -3987,11 +4406,13 @@ export function App() {
         if (normalizedDefaultRoot) {
           setDefaultProjectRoot(normalizedDefaultRoot);
         }
+        await loadNotificationSettings();
         const nextActiveProjectId = await refreshProjectsAndStatus();
         if (nextActiveProjectId) {
           await loadMessages(nextActiveProjectId);
           void loadDiff(nextActiveProjectId);
           void loadPendingApprovals(nextActiveProjectId);
+          void loadPendingQuestions(nextActiveProjectId);
           return;
         }
 
@@ -4005,6 +4426,7 @@ export function App() {
           await loadMessages(syncedActiveId);
           void loadDiff(syncedActiveId);
           void loadPendingApprovals(syncedActiveId);
+          void loadPendingQuestions(syncedActiveId);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to load app state";
@@ -4135,6 +4557,7 @@ export function App() {
   }, [showApprovalFixture]);
   const visiblePendingApprovals = showApprovalFixture ? fixturePendingApprovals : pendingApprovals;
   const hasBlockingApprovals = visiblePendingApprovals.length > 0;
+  const hasBlockingQuestions = pendingQuestions.length > 0;
   const timelineEntries = useMemo<TimelineEntry[]>(() => {
     const messageEntries: TimelineEntry[] = messages.map((message) => ({
       kind: "message",
@@ -4778,11 +5201,55 @@ export function App() {
     }
   }
 
+  async function loadPendingQuestions(projectId: string) {
+    try {
+      const result = await fetchPendingQuestions(projectId);
+      setPendingQuestions(result.questions);
+      setQuestionDrafts((current) => {
+        const next = { ...current };
+        for (const question of result.questions) {
+          if (!next[question.id]) {
+            next[question.id] = buildInitialQuestionDraft(question);
+          }
+        }
+        for (const key of Object.keys(next)) {
+          if (!result.questions.some((question) => question.id === key)) {
+            delete next[key];
+          }
+        }
+        return next;
+      });
+    } catch {
+      setPendingQuestions([]);
+      setQuestionDrafts({});
+    }
+  }
+
+  async function loadNotificationSettings() {
+    try {
+      const result = await fetchNotificationSettings();
+      const nextEnabled = result.channel !== "off";
+      setNotificationChannel(result.channel);
+      setNtfyTopicUrl(result.ntfyTopicUrl);
+      setNotificationsEnabled(nextEnabled);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(NOTIFICATION_PREFERENCE_KEY, nextEnabled ? "true" : "false");
+      }
+    } catch {
+      setNotificationChannel("browser");
+      setNtfyTopicUrl("");
+    }
+  }
+
   async function loadProjectDirectoryEntries(
     projectId: string,
     directory: string,
     reset = false
   ) {
+    const generation = reset ? projectFileLoadGenerationRef.current + 1 : projectFileLoadGenerationRef.current;
+    if (reset) {
+      projectFileLoadGenerationRef.current = generation;
+    }
     const normalizedDirectory = directory.trim();
     const requestKey = `${projectId}:${normalizedDirectory}`;
     if (projectFileDirectoryRequestsRef.current.has(requestKey)) {
@@ -4800,6 +5267,9 @@ export function App() {
 
     try {
       const result = await fetchProjectDirectoryEntries(projectId, normalizedDirectory);
+      if (generation !== projectFileLoadGenerationRef.current) {
+        return;
+      }
       setProjectFileEntries((current) => {
         const next = reset ? [] : [...current];
         const seen = new Set(next.map((entry) => `${entry.path}:${entry.isDir ? "d" : "f"}`));
@@ -4818,6 +5288,9 @@ export function App() {
         current.includes(normalizedDirectory) ? current : [...current, normalizedDirectory]
       );
     } catch (error) {
+      if (generation !== projectFileLoadGenerationRef.current) {
+        return;
+      }
       setProjectFilesError(
         error instanceof Error ? error.message : "Failed to load project files"
       );
@@ -4978,9 +5451,10 @@ export function App() {
         return;
       }
       setProjectSessions(result.sessions);
+      const resolvedActiveSessionId = result.activeSessionId ?? activeSessionId ?? null;
       if (!silent) {
-        setActiveSessionId(result.activeSessionId);
-        updateProjectSessionSelection(projectId, result.activeSessionId);
+        setActiveSessionId(resolvedActiveSessionId);
+        updateProjectSessionSelection(projectId, resolvedActiveSessionId);
       }
     } catch (error) {
       if (requestId !== sessionLoadRequestRef.current) {
@@ -5221,6 +5695,7 @@ export function App() {
         void Promise.all([
           loadMessages(projectId, { silent: true }),
           loadProjectSessions(projectId, { silent: true }),
+          loadPendingQuestions(projectId),
         ]);
       }
       refreshDebounceRef.current = null;
@@ -5267,6 +5742,7 @@ export function App() {
 
       stream.onmessage = (event) => {
         const parsed = parseApprovalFromStreamData(event.data);
+        const parsedQuestion = parseQuestionFromStreamData(event.data);
         if (parsed.request) {
           setPendingApprovals((current) => {
             if (current.some((item) => item.permissionId === parsed.request?.permissionId)) {
@@ -5279,6 +5755,31 @@ export function App() {
           setPendingApprovals((current) =>
             current.filter((item) => item.permissionId !== parsed.resolvedPermissionId)
           );
+        }
+        if (parsedQuestion.request && parsedQuestion.request.sessionID === activeSessionId) {
+          setPendingQuestions((current) => {
+            if (current.some((item) => item.id === parsedQuestion.request?.id)) {
+              return current;
+            }
+            return [...current, parsedQuestion.request!];
+          });
+          setQuestionDrafts((current) => {
+            if (!parsedQuestion.request || current[parsedQuestion.request.id]) {
+              return current;
+            }
+            return {
+              ...current,
+              [parsedQuestion.request.id]: buildInitialQuestionDraft(parsedQuestion.request),
+            };
+          });
+        }
+        if (parsedQuestion.resolvedQuestionId) {
+          setPendingQuestions((current) => removeQuestionFromList(current, parsedQuestion.resolvedQuestionId!));
+          setQuestionDrafts((current) => {
+            const next = { ...current };
+            delete next[parsedQuestion.resolvedQuestionId!];
+            return next;
+          });
         }
         scheduleStreamRefresh(activeProjectId);
       };
@@ -5368,6 +5869,7 @@ export function App() {
       taskLoadRequestRef.current += 1;
       sessionLoadRequestRef.current += 1;
       projectFilePreviewRequestRef.current += 1;
+      projectFileLoadGenerationRef.current += 1;
       setScheduledTask(null);
       setScheduledRuns([]);
       setTaskTimelineEvents([]);
@@ -5386,6 +5888,9 @@ export function App() {
       setActiveSessionId(null);
       setSessionError(null);
       setSessionLoading(false);
+      setPendingQuestions([]);
+      setQuestionDrafts({});
+      setRespondingQuestionId(null);
       setProjectFileEntries([]);
       setProjectFilesTruncated(false);
       setProjectFilesError(null);
@@ -5406,7 +5911,9 @@ export function App() {
     void loadProjectRuntime(activeProjectId);
     void loadProjectSessions(activeProjectId);
     void loadProjectPrd(activeProjectId);
+    void loadPendingQuestions(activeProjectId);
     projectFileDirectoryRequestsRef.current.clear();
+    projectFileLoadGenerationRef.current += 1;
     setProjectFileEntries([]);
     setProjectFilesTruncated(false);
     setProjectFileLoadedDirs([]);
@@ -5605,16 +6112,36 @@ export function App() {
       return;
     }
 
-    const previousMessageId = lastFinalAssistantMessageIdByChatRef.current[activeChatKey] ?? null;
-    const shouldNotify =
+    const hasTrackedFinalReply = Object.prototype.hasOwnProperty.call(
+      lastFinalAssistantMessageIdByChatRef.current,
+      activeChatKey
+    );
+    const previousMessageId = hasTrackedFinalReply
+      ? lastFinalAssistantMessageIdByChatRef.current[activeChatKey] ?? null
+      : null;
+    const awaitingFirstFinalReply =
+      awaitingFinalReplyNotificationByChatRef.current[activeChatKey] === true;
+
+    if (!hasTrackedFinalReply && !awaitingFirstFinalReply) {
+      lastFinalAssistantMessageIdByChatRef.current[activeChatKey] = latestFinalAssistantMessage.id;
+      return;
+    }
+
+    const isNewFinalReply = previousMessageId !== latestFinalAssistantMessage.id;
+    const shouldNotifyBrowser =
       notificationsEnabled &&
-      document.hidden &&
-      previousMessageId !== latestFinalAssistantMessage.id &&
+      isNewFinalReply &&
+      (notificationChannel === "browser" || notificationChannel === "both") &&
       typeof window !== "undefined" &&
       "Notification" in window &&
       Notification.permission === "granted";
+    const shouldNotifyNtfy =
+      notificationsEnabled &&
+      isNewFinalReply &&
+      (notificationChannel === "ntfy" || notificationChannel === "both") &&
+      ntfyTopicUrl.trim().length > 0;
 
-    if (shouldNotify) {
+    if (shouldNotifyBrowser) {
       const notification = new Notification(activeProject?.name || "Agent reply", {
         body: latestFinalAssistantMessage.text.trim().slice(0, 180),
         tag: `${activeChatKey}:${latestFinalAssistantMessage.id}`,
@@ -5625,8 +6152,21 @@ export function App() {
       };
     }
 
+    if (shouldNotifyNtfy) {
+      void sendNtfyNotification({
+        title: activeProject?.name || "Agent reply",
+        message: latestFinalAssistantMessage.text.trim().slice(0, 180),
+        ntfyTopicUrl: ntfyTopicUrl.trim(),
+      }).catch(() => {
+        // Keep chat rendering resilient if background notification delivery fails.
+      });
+    }
+
+    if (isNewFinalReply) {
+      awaitingFinalReplyNotificationByChatRef.current[activeChatKey] = false;
+    }
     lastFinalAssistantMessageIdByChatRef.current[activeChatKey] = latestFinalAssistantMessage.id;
-  }, [activeChatKey, activeProject?.name, messages, notificationsEnabled]);
+  }, [activeChatKey, activeProject?.name, messages, notificationChannel, notificationsEnabled, ntfyTopicUrl]);
 
   useEffect(() => {
     if (!activeProjectId || messages.length === 0) {
@@ -5755,6 +6295,9 @@ export function App() {
     setReconnectStartedAtMs(null);
     setReconnectAttemptCount(0);
     setPendingApprovals([]);
+    setPendingQuestions([]);
+    setQuestionDrafts({});
+    setRespondingQuestionId(null);
   }
 
   async function handleSelectProject(projectId: string) {
@@ -5771,6 +6314,9 @@ export function App() {
     setActiveProjectId(projectId);
     setHighlightedProjectId(projectId);
     setPendingApprovals([]);
+    setPendingQuestions([]);
+    setQuestionDrafts({});
+    setRespondingQuestionId(null);
     setStopFeedbackLabel(null);
     setStopFeedbackUntilMs(null);
     setActiveSessionId(null);
@@ -5782,7 +6328,11 @@ export function App() {
     setMessages([]);
     setTaskTimelineEvents([]);
     setDiffEntries([]);
-    await Promise.all([loadMessages(projectId), loadPendingApprovals(projectId)]);
+    await Promise.all([
+      loadMessages(projectId, { sessionId: undefined }),
+      loadPendingApprovals(projectId),
+      loadPendingQuestions(projectId),
+    ]);
     void loadDiff(projectId);
   }
 
@@ -5846,10 +6396,13 @@ export function App() {
       setActiveSessionId(switchedSessionId);
       updateProjectSessionSelection(activeProjectId, switchedSessionId);
       setPendingApprovals([]);
+      setPendingQuestions([]);
+      setQuestionDrafts({});
       await Promise.all([
-        loadProjectSessions(activeProjectId),
+        loadProjectSessions(activeProjectId, { silent: true }),
         loadMessages(activeProjectId, { sessionId: switchedSessionId }),
         loadPendingApprovals(activeProjectId),
+        loadPendingQuestions(activeProjectId),
       ]);
       void loadDiff(activeProjectId);
     } catch (error) {
@@ -5880,13 +6433,16 @@ export function App() {
       setActiveSessionId(createdSessionId);
       updateProjectSessionSelection(activeProjectId, createdSessionId);
       setPendingApprovals([]);
+      setPendingQuestions([]);
+      setQuestionDrafts({});
       setMessages([]);
       setTaskTimelineEvents([]);
       setDiffEntries([]);
       await Promise.all([
-        loadProjectSessions(activeProjectId),
+        loadProjectSessions(activeProjectId, { silent: true }),
         loadMessages(activeProjectId, { sessionId: createdSessionId }),
         loadPendingApprovals(activeProjectId),
+        loadPendingQuestions(activeProjectId),
       ]);
       void loadDiff(activeProjectId);
     } catch (error) {
@@ -5931,6 +6487,8 @@ export function App() {
       setActiveSessionId(deletedResultSessionId);
       updateProjectSessionSelection(activeProjectId, deletedResultSessionId);
       setPendingApprovals([]);
+      setPendingQuestions([]);
+      setQuestionDrafts({});
       setMessages([]);
       setTaskTimelineEvents([]);
       setDiffEntries([]);
@@ -5944,6 +6502,7 @@ export function App() {
           await Promise.all([
             loadMessages(nextProjectId, { sessionId: undefined }),
             loadPendingApprovals(nextProjectId),
+            loadPendingQuestions(nextProjectId),
           ]);
           void loadDiff(nextProjectId);
         }
@@ -5953,6 +6512,7 @@ export function App() {
         await Promise.all([
           loadMessages(activeProjectId, { sessionId: deletedResultSessionId }),
           loadPendingApprovals(activeProjectId),
+          loadPendingQuestions(activeProjectId),
         ]);
         void loadDiff(activeProjectId);
       }
@@ -6092,7 +6652,7 @@ export function App() {
 
   async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!activeProjectId || sending || hasBlockingApprovals) {
+    if (!activeProjectId || sending || hasBlockingApprovals || hasBlockingQuestions) {
       return;
     }
 
@@ -6105,7 +6665,7 @@ export function App() {
     setRunIntentActive(true);
     setAbortSuppressStreaming(false);
     setProjectError(null);
-    if (notificationsEnabled) {
+    if (notificationsEnabled && (notificationChannel === "browser" || notificationChannel === "both")) {
       void requestBrowserNotificationPermission();
     }
 
@@ -6124,15 +6684,20 @@ export function App() {
     try {
       const parsed = parseSlashCommand(text);
       const result = parsed
-        ? await runCommand(activeProjectId, parsed.command, parsed.argumentsList)
-        : await sendMessage(activeProjectId, text);
+        ? await runCommand(activeProjectId, parsed.command, parsed.argumentsList, activeSessionId)
+        : await sendMessage(activeProjectId, text, activeSessionId);
+
+      if (!parsed) {
+        awaitingFinalReplyNotificationByChatRef.current[`${activeProjectId}:${result.sessionId}`] = true;
+      }
 
       setMessages((current) => [...current, result.message]);
       await refreshProjectsAndStatus(activeProjectId);
       await Promise.all([
         loadProjectSessions(activeProjectId, { silent: true }),
-        loadMessages(activeProjectId),
+        loadMessages(activeProjectId, { sessionId: result.sessionId }),
         loadPendingApprovals(activeProjectId),
+        loadPendingQuestions(activeProjectId),
       ]);
       void loadDiff(activeProjectId);
     } catch (error) {
@@ -6157,13 +6722,14 @@ export function App() {
     setAborting(true);
     setProjectError(null);
     try {
-      await abortSession(activeProjectId);
+      await abortSession(activeProjectId, activeSessionId);
       setStopFeedbackLabel("Stop requested. Waiting for final session update...");
       setStopFeedbackUntilMs(Date.now() + 4_000);
       addTelemetryMarker("chat.abort.manual", { projectId: activeProjectId });
       await Promise.all([
-        loadMessages(activeProjectId),
+        loadMessages(activeProjectId, { sessionId: activeSessionId ?? undefined }),
         loadPendingApprovals(activeProjectId),
+        loadPendingQuestions(activeProjectId),
       ]);
       void loadDiff(activeProjectId);
       await refreshProjectsAndStatus(activeProjectId);
@@ -6350,6 +6916,7 @@ export function App() {
         parts: [],
       };
       setMessages((current) => [...current, decisionMessage]);
+      scheduleStreamRefresh(activeProjectId);
     } catch (error) {
       setProjectError(
         error instanceof Error ? error.message : "Failed to submit permission decision"
@@ -6948,7 +7515,7 @@ export function App() {
                       void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
                     }}
                   />
-                  <SessionControls
+                  <SessionTabs
                     sessions={projectSessions}
                     activeSessionId={activeSessionId}
                     loading={sessionLoading}
@@ -6972,10 +7539,22 @@ export function App() {
                     supported={notificationPermission !== "unsupported"}
                     enabled={notificationsEnabled}
                     permission={notificationPermission}
+                    channel={notificationChannel}
+                    ntfyTopicUrl={ntfyTopicUrl}
+                    saving={notificationSettingsSaving}
+                    testing={notificationTesting}
                     onEnable={() => {
                       void handleEnableNotifications();
                     }}
                     onDisable={handleDisableNotifications}
+                    onChannelChange={setNotificationChannel}
+                    onNtfyTopicUrlChange={setNtfyTopicUrl}
+                    onSaveSettings={() => {
+                      void handleSaveNotificationSettings();
+                    }}
+                    onTestNtfy={() => {
+                      void handleTestNtfy();
+                    }}
                   />
                 </div>
 
@@ -7076,6 +7655,30 @@ export function App() {
                     </button>
                   </div>
                 </article>
+              ))}
+            </div>
+          ) : null}
+          {activeProject && fixtureMode !== "no-project" && hasBlockingQuestions ? (
+            <div className="approval-list">
+              {pendingQuestions.map((question) => (
+                <QuestionCard
+                  key={question.id}
+                  question={question}
+                  draft={questionDrafts[question.id] ?? buildInitialQuestionDraft(question)}
+                  responding={respondingQuestionId === question.id}
+                  onToggleOption={(questionIndex, optionLabel, multiple) => {
+                    handleQuestionOptionToggle(question.id, questionIndex, optionLabel, multiple);
+                  }}
+                  onCustomValueChange={(questionIndex, value) => {
+                    handleQuestionCustomValueChange(question.id, questionIndex, value);
+                  }}
+                  onSubmit={() => {
+                    void handleReplyQuestion(question);
+                  }}
+                  onReject={() => {
+                    void handleRejectQuestion(question);
+                  }}
+                />
               ))}
             </div>
           ) : null}
@@ -7370,7 +7973,7 @@ export function App() {
                     void saveProjectRuntimeSelection({ model: selectedModel, agent: value });
                   }}
                 />
-                <SessionControls
+                <SessionTabs
                   sessions={projectSessions}
                   activeSessionId={activeSessionId}
                   loading={sessionLoading}
@@ -7393,10 +7996,22 @@ export function App() {
                   supported={notificationPermission !== "unsupported"}
                   enabled={notificationsEnabled}
                   permission={notificationPermission}
+                  channel={notificationChannel}
+                  ntfyTopicUrl={ntfyTopicUrl}
+                  saving={notificationSettingsSaving}
+                  testing={notificationTesting}
                   onEnable={() => {
                     void handleEnableNotifications();
                   }}
                   onDisable={handleDisableNotifications}
+                  onChannelChange={setNotificationChannel}
+                  onNtfyTopicUrlChange={setNtfyTopicUrl}
+                  onSaveSettings={() => {
+                    void handleSaveNotificationSettings();
+                  }}
+                  onTestNtfy={() => {
+                    void handleTestNtfy();
+                  }}
                 />
               </div>
               <div className="toolbar-card install-card">
@@ -7432,7 +8047,8 @@ export function App() {
               !activeProject ||
               sending ||
               transcribingAudio ||
-              hasBlockingApprovals
+              hasBlockingApprovals ||
+              hasBlockingQuestions
             }
             value={composerValue}
             onChange={(event) => setComposerValue(event.target.value)}
@@ -7441,6 +8057,8 @@ export function App() {
                 ? "Select a project to start"
                 : hasBlockingApprovals
                 ? "Respond to pending approval before sending new prompts"
+                : hasBlockingQuestions
+                ? "Respond to pending question before sending new prompts"
                 : transcribingAudio
                 ? "Transcribing audio..."
                 : "Message"
@@ -7457,7 +8075,7 @@ export function App() {
               type="button"
               className={`mic-button ${recording ? "recording" : ""}`}
               onClick={() => void handleToggleRecording()}
-              disabled={!activeProject || hasActiveRun || transcribingAudio || hasBlockingApprovals}
+              disabled={!activeProject || hasActiveRun || transcribingAudio || hasBlockingApprovals || hasBlockingQuestions}
               title={recording ? "Stop recording" : "Start voice input"}
             >
               {transcribingAudio ? "..." : recording ? "Stop" : "Mic"}
@@ -7473,7 +8091,7 @@ export function App() {
               </button>
             ) : (
               <button
-                disabled={!activeProject || sending || transcribingAudio || hasBlockingApprovals}
+                disabled={!activeProject || sending || transcribingAudio || hasBlockingApprovals || hasBlockingQuestions}
                 type="submit"
               >
                 {sending ? "..." : "Send"}

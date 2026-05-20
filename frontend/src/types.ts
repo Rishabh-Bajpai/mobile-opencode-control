@@ -1,5 +1,7 @@
 export type SessionStatus = "idle" | "running" | "waiting_approval" | "error";
 
+export type NotificationChannel = "off" | "browser" | "ntfy" | "both";
+
 export interface Project {
   id: string;
   name: string;
@@ -96,6 +98,34 @@ export interface ProjectSession {
 export interface ProjectSessionsResponse {
   activeSessionId: string | null;
   sessions: ProjectSession[];
+}
+
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface QuestionInfo {
+  question: string;
+  header: string;
+  options: QuestionOption[];
+  multiple?: boolean;
+  custom?: boolean;
+}
+
+export interface QuestionRequest {
+  id: string;
+  sessionID: string;
+  questions: QuestionInfo[];
+  tool?: {
+    messageID: string;
+    callID: string;
+  };
+}
+
+export interface NotificationSettings {
+  channel: NotificationChannel;
+  ntfyTopicUrl: string;
 }
 
 export interface SessionDiffEntry {
