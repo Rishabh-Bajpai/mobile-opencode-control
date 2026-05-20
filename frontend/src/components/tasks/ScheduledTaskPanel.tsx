@@ -328,32 +328,33 @@ export function ScheduledTaskPanel({
                   <span>Retry backoff</span>
                   <input type="number" min={1} value={retryBackoffMinutes} onChange={(event) => onRetryBackoffMinutesChange(event.target.value)} placeholder="minutes" />
                 </label>
-                <label className="task-enabled">
-                  <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={(event) => onEnabledChange(event.target.checked)}
-                  />
-                  <span>Enabled</span>
-                </label>
-                <label className="task-enabled">
-                  <input type="checkbox" checked={heartbeatEnabled} onChange={(event) => onHeartbeatEnabledChange(event.target.checked)} />
-                  <span>Use heartbeat file</span>
-                </label>
+                <div className="task-checkbox-row">
+                  <label className="task-enabled">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(event) => onEnabledChange(event.target.checked)}
+                    />
+                    <span>Enabled</span>
+                  </label>
+                  <label className="task-enabled">
+                    <input type="checkbox" checked={heartbeatEnabled} onChange={(event) => onHeartbeatEnabledChange(event.target.checked)} />
+                    <span>Use heartbeat file</span>
+                  </label>
+                  {taskType === "goal" ? <label className="task-enabled">
+                    <input
+                      type="checkbox"
+                      checked={autoDisableOnGoalMet}
+                      onChange={(event) => onAutoDisableOnGoalMetChange(event.target.checked)}
+                    />
+                    <span>Pause when goal is met</span>
+                  </label> : null}
+                </div>
               </div>
 
               {taskType === "goal" ? <label>
                 <span>Goal definition</span>
                 <textarea value={goalDefinition} onChange={(event) => onGoalDefinitionChange(event.target.value)} placeholder="Describe the objective. The agent will report GOAL_MET: yes/no." />
-              </label> : null}
-
-              {taskType === "goal" ? <label className="task-enabled">
-                <input
-                  type="checkbox"
-                  checked={autoDisableOnGoalMet}
-                  onChange={(event) => onAutoDisableOnGoalMetChange(event.target.checked)}
-                />
-                <span>Pause when goal is met</span>
               </label> : null}
 
               <label>

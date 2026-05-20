@@ -3061,6 +3061,13 @@ input {
   min-width: 0;
 }
 
+.task-checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  min-width: 0;
+}
+
 .task-actions {
   display: flex;
   flex-wrap: wrap;
