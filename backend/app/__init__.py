@@ -4,9 +4,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 from flask import Flask
 from flask_cors import CORS
-from sqlalchemy import inspect, text
+from sqlalchemy import MetaData, Table, inspect, literal, null, select, text
 
 from .auth import register_auth_routes
+from .git_routes import register_git_routes
 from .config import load_settings
 from .db import db
 from .models import AppSetting, Project, ScheduledTask, ScheduledTaskRun, TimelineEvent
@@ -29,13 +30,33 @@ def _table_has_unique_project_constraint(inspector) -> bool:
 
 
 def _copy_legacy_rows(connection, source_table: str, target_table: str, column_map: dict[str, str]) -> None:
-    source_columns = ", ".join(column_map.values())
-    target_columns = ", ".join(column_map.keys())
-    connection.execute(
-        text(
-            f"INSERT INTO {target_table} ({target_columns}) "
-            f"SELECT {source_columns} FROM {source_table}"
+    metadata = MetaData()
+    source = Table(source_table, metadata, autoload_with=connection)
+    target = Table(target_table, metadata, autoload_with=connection)
+
+    select_columns = []
+    for target_column, source_expression in column_map.items():
+        if source_expression in source.c:
+            select_columns.append(source.c[source_expression].label(target_column))
+            continue
+        if source_expression == "NULL":
+            select_columns.append(null().label(target_column))
+            continue
+        if source_expression.startswith("'") and source_expression.endswith("'"):
+            select_columns.append(
+                literal(source_expression[1:-1]).label(target_column)
+            )
+            continue
+        if source_expression.isdigit():
+            select_columns.append(literal(int(source_expression)).label(target_column))
+            continue
+        raise ValueError(
+            "Unsupported legacy column expression "
+            f"'{source_expression}' in migration from {source_table} to {target_table}"
         )
+
+    connection.execute(
+        target.insert().from_select(list(column_map.keys()), select(*select_columns))
     )
 
 
@@ -262,5 +283,6 @@ def create_app() -> Flask:
     register_auth_routes(app, settings)
     voice_runtime = BuiltinVoiceRuntime(settings)
     register_api_routes(app, settings, opencode_client, scheduler, voice_runtime)
+    register_git_routes(app)
 
     return app

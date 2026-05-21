@@ -1,5 +1,7 @@
 export type SessionStatus = "idle" | "running" | "waiting_approval" | "error";
 
+export type NotificationChannel = "off" | "browser" | "ntfy" | "both";
+
 export interface Project {
   id: string;
   name: string;
@@ -33,6 +35,7 @@ export interface ProjectsSyncResponse {
 export interface AppStateResponse {
   activeProjectId: string | null;
   defaultProjectRoot: string | null;
+  defaultModel: string | null;
 }
 
 export interface ChatMessage {
@@ -41,6 +44,15 @@ export interface ChatMessage {
   createdAt: string;
   text: string;
   parts: Array<Record<string, unknown>>;
+  tokens?: {
+    input: number;
+    output: number;
+    reasoning: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
+  mode?: string;
+  summary?: boolean;
 }
 
 export interface TimelineEvent {
@@ -63,6 +75,7 @@ export interface RuntimeModelOption {
   modelId: string;
   name: string;
   isDefault: boolean;
+  contextLimit: number;
 }
 
 export interface RuntimeAgentOption {
@@ -98,8 +111,83 @@ export interface ProjectSessionsResponse {
   sessions: ProjectSession[];
 }
 
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface QuestionInfo {
+  question: string;
+  header: string;
+  options: QuestionOption[];
+  multiple?: boolean;
+  custom?: boolean;
+}
+
+export interface QuestionRequest {
+  id: string;
+  sessionID: string;
+  questions: QuestionInfo[];
+  tool?: {
+    messageID: string;
+    callID: string;
+  };
+}
+
+export interface NotificationSettings {
+  channel: NotificationChannel;
+  ntfyTopicUrl: string;
+}
+
 export interface SessionDiffEntry {
   [key: string]: unknown;
+}
+
+export interface GitDiffEntry {
+  path: string;
+  changeType: "A" | "D" | "M" | "R" | "?";
+  patch: string;
+}
+
+export interface GitDiffResponse {
+  diff: GitDiffEntry[];
+}
+
+export interface ToolPart {
+  type: "tool";
+  tool: string;
+  callID: string;
+  state: {
+    status: "completed" | "running" | "error";
+    input?: Record<string, unknown>;
+    output?: string;
+    metadata?: { truncated?: boolean; matches?: number; [key: string]: unknown };
+    title?: string;
+    time?: { start: number; end: number };
+  };
+  id: string;
+  sessionID: string;
+  messageID: string;
+}
+
+export interface PatchPart {
+  type: "patch";
+  hash: string;
+  files: string[];
+  id: string;
+  sessionID: string;
+  messageID: string;
+}
+
+export interface FilePart {
+  type: "file";
+  mime: string;
+  filename: string;
+  url: string;
+  source?: Record<string, unknown>;
+  id: string;
+  sessionID: string;
+  messageID: string;
 }
 
 export interface ProjectFileEntry {
@@ -203,4 +291,25 @@ export interface ScheduledTaskDetails {
   tasks: ScheduledTask[];
   runs: ScheduledTaskRun[];
   metrics?: ScheduledTaskMetrics;
+}
+
+export interface PrdUserStory {
+  id: string;
+  title: string;
+  description: string;
+  acceptanceCriteria: string[];
+  priority: number;
+  passes: boolean;
+  notes: string;
+}
+
+export interface PrdData {
+  project: string;
+  branchName: string;
+  description: string;
+  userStories: PrdUserStory[];
+}
+
+export interface PrdResponse {
+  prd: PrdData | null;
 }
