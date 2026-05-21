@@ -678,7 +678,7 @@ export function apiGitPull(projectId: string, remote: string) {
   });
 }
 
-export function apiGitDiff(projectId: string) {
+export function apiGitDiff(projectId: string): Promise<GitDiffEntry[]> {
   return request<GitDiffResponse>(`/api/projects/${projectId}/git/diff`).then(r => r.diff);
 }
 

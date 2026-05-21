@@ -109,6 +109,7 @@ export function VirtualizedProjectList({
         }
       }}
     >
+      {projects.length > 0 ? <small className="project-list-summary">{totalLabel}</small> : null}
       {projects.length === 0 ? (
         <div className="project-list-empty-card">
           <strong>{emptyLabel}</strong>

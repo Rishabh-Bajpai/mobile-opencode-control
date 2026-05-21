@@ -70,7 +70,7 @@ def sync_projects_from_opencode():
     try:
         upstream_projects = opencode_client.list_projects()
     except Exception as exc:
-        return jsonify({"error": f"Failed to sync projects: {exc}"}), 502
+        return _bad_gateway("Failed to sync projects", exc)
 
     imported = 0
     updated = 0
@@ -179,9 +179,7 @@ def create_project():
         try:
             os.makedirs(normalized_path, exist_ok=True)
         except OSError as exc:
-            return jsonify(
-                {"error": f"Unable to create project folder: {exc}"}
-            ), 400
+            return _internal_error("Unable to create project folder", exc)
 
     if not name:
         name = os.path.basename(normalized_path.rstrip("/")) or normalized_path
@@ -204,7 +202,7 @@ def create_project():
     except Exception as exc:
         db.session.delete(project)
         db.session.commit()
-        return jsonify({"error": f"Failed to create initial session: {exc}"}), 502
+        return _bad_gateway("Failed to create initial session", exc)
 
     return jsonify({"project": _project_to_dict(project)}), 201
 

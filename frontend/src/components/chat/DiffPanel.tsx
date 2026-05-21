@@ -6,13 +6,20 @@ function changeTypeClassName(changeType: GitDiffEntry["changeType"]) {
 }
 
 function DiffLine({ line }: { line: string }) {
-  const cls = line.startsWith("+")
-    ? "diff-line-add"
-    : line.startsWith("-")
-      ? "diff-line-del"
-      : line.startsWith("@@")
-        ? "diff-line-hunk"
-        : "";
+  const isMetadata =
+    line.startsWith("+++") ||
+    line.startsWith("---") ||
+    line.startsWith("diff --git") ||
+    line.startsWith("index ");
+  const cls = isMetadata
+    ? ""
+    : line.startsWith("+")
+      ? "diff-line-add"
+      : line.startsWith("-")
+        ? "diff-line-del"
+        : line.startsWith("@@")
+          ? "diff-line-hunk"
+          : "";
   return (
     <div className={`diff-line ${cls}`}>
       <span className="diff-line-no" />

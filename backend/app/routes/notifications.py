@@ -42,9 +42,12 @@ def update_notification_settings():
     if channel not in {"browser", "ntfy", "both", "off"}:
         return jsonify({"error": "channel must be browser, ntfy, both, or off"}), 400
     ntfy_topic_url = str(body.get("ntfyTopicUrl") or "").strip()
-    _set_notification_settings(channel, ntfy_topic_url)
+    try:
+        _set_notification_settings(channel, ntfy_topic_url)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     db.session.commit()
-    return jsonify({"ok": True, "channel": channel, "ntfyTopicUrl": ntfy_topic_url})
+    return jsonify({"ok": True, "channel": channel, "ntfyTopicUrl": _validate_ntfy_topic_url(ntfy_topic_url)})
 
 
 @api_bp.post("/notifications/ntfy/test")
@@ -66,8 +69,10 @@ def test_ntfy_notification():
     try:
         _send_ntfy_notification(topic_url, title, message)
         return jsonify({"ok": True})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        return jsonify({"error": f"Failed to send ntfy notification: {exc}"}), 502
+        return _bad_gateway("Failed to send ntfy notification", exc)
 
 
 @api_bp.post("/notifications/ntfy/send")
@@ -89,5 +94,7 @@ def send_ntfy_notification():
     try:
         _send_ntfy_notification(topic_url, title, message)
         return jsonify({"ok": True})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        return jsonify({"error": f"Failed to send ntfy notification: {exc}"}), 502
+        return _bad_gateway("Failed to send ntfy notification", exc)

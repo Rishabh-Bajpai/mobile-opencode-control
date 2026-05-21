@@ -1,7 +1,8 @@
 from datetime import timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from git import Repo, exc
 
 from .auth import auth_required
@@ -35,6 +36,23 @@ def _current_branch_name(repo: Repo) -> str:
 
 def _split_lines(value: str) -> list[str]:
     return [line.strip() for line in value.splitlines() if line.strip()]
+
+
+def _git_error_response(message: str, error: Exception, status_code: int = 500):
+    current_app.logger.exception("%s: %s", message, error)
+    return jsonify({"error": message}), status_code
+
+
+def _validate_git_remote_url(url: str) -> str:
+    normalized = url.strip()
+    parsed = urlparse(normalized)
+    if parsed.scheme == "file":
+        raise ValueError("Remote URL must not use the file:// scheme")
+    if parsed.scheme in {"https", "http", "ssh", "git+ssh"} and parsed.netloc:
+        return normalized
+    if "://" not in normalized and "@" in normalized and ":" in normalized:
+        return normalized
+    raise ValueError("Remote URL must use https or ssh")
 
 
 def _diff_name_only(repo: Repo, *args: str) -> list[str]:
@@ -280,7 +298,7 @@ def git_init(project_id: int):
         Repo.init(project.path)
         return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to initialize git repository", e)
 
 
 @git_bp.get("/api/projects/<int:project_id>/git/status")
@@ -312,7 +330,7 @@ def git_status(project_id: int):
             "lastCommit": _serialize_last_commit(repo),
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to load git status", e)
 
 
 @git_bp.get("/api/projects/<int:project_id>/git/branches")
@@ -330,7 +348,7 @@ def git_branches(project_id: int):
             "remote": _serialize_remote_branches(repo),
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to load git branches", e)
 
 
 @git_bp.post("/api/projects/<int:project_id>/git/branches/checkout")
@@ -355,7 +373,7 @@ def git_checkout_branch(project_id: int):
         branch.checkout()
         return jsonify({"success": True, "currentBranch": branch.name})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to checkout branch", e)
 
 
 @git_bp.post("/api/projects/<int:project_id>/git/branches/create")
@@ -389,7 +407,7 @@ def git_create_branch(project_id: int):
                 branch.checkout()
         return jsonify({"success": True, "branch": branch_name})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to create branch", e)
 
 
 @git_bp.post("/api/projects/<int:project_id>/git/branches/track")
@@ -427,7 +445,7 @@ def git_track_remote_branch(project_id: int):
         local_branch.checkout()
         return jsonify({"success": True, "branch": local_name, "upstream": remote_ref.name})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to track remote branch", e)
 
 
 @git_bp.get("/api/projects/<int:project_id>/git/history")
@@ -458,7 +476,7 @@ def git_history(project_id: int):
             "hasMore": has_more,
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to load git history", e)
 
 
 @git_bp.post("/api/projects/<int:project_id>/git/stage")
@@ -475,7 +493,7 @@ def git_stage_all(project_id: int):
         repo.git.add("--all")
         return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to stage changes", e)
 
 
 @git_bp.post("/api/projects/<int:project_id>/git/commit")
@@ -503,7 +521,7 @@ def git_commit(project_id: int):
         repo.index.commit(message)
         return jsonify({"success": True, "commit": _serialize_last_commit(repo)})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to create commit", e)
 
 
 @git_bp.post("/api/projects/<int:project_id>/git/push")
@@ -534,7 +552,7 @@ def git_push(project_id: int):
             repo.git.push("--set-upstream", remote_name, repo.active_branch.name)
         return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to push branch", e)
 
 
 @git_bp.post("/api/projects/<int:project_id>/git/pull")
@@ -562,10 +580,10 @@ def git_pull(project_id: int):
         branch_spec = repo.active_branch.name
         if tracking_branch is not None and tracking_branch.remote_name == remote_name:
             branch_spec = tracking_branch.remote_head
-        remote.pull(branch_spec)
+        repo.git.pull(remote_name, branch_spec)
         return jsonify({"success": True})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to pull branch", e)
 
 
 @git_bp.get("/api/projects/<int:project_id>/git/diff")
@@ -620,7 +638,7 @@ def git_diff(project_id: int):
 
         return jsonify({"diff": entries})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to load git diff", e)
 
 
 @git_bp.post("/api/projects/<int:project_id>/git/remote")
@@ -637,16 +655,20 @@ def git_remote(project_id: int):
     url = (data.get("url") or "").strip()
     if not url:
         return jsonify({"error": "URL is required"}), 400
+    try:
+        validated_url = _validate_git_remote_url(url)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     try:
         existing_remote = _get_named_remote(repo, name)
         if existing_remote is not None:
-            existing_remote.set_url(url)
+            existing_remote.set_url(validated_url)
         else:
-            repo.create_remote(name, url)
-        return jsonify({"success": True, "remote": {"name": name, "url": url}})
+            repo.create_remote(name, validated_url)
+        return jsonify({"success": True, "remote": {"name": name, "url": validated_url}})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _git_error_response("Failed to update git remote", e)
 
 
 def register_git_routes(app):

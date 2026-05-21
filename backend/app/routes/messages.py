@@ -58,7 +58,7 @@ def get_project_messages(project_id: int):
             .all()
         )
     except Exception as exc:
-        return jsonify({"error": f"Failed to load messages: {exc}"}), 502
+        return _bad_gateway("Failed to load messages", exc)
 
     return jsonify(
         {
@@ -114,7 +114,7 @@ def send_project_message(project_id: int):
     except Exception as exc:
         project.session_status = "error"
         db.session.commit()
-        return jsonify({"error": f"Failed to send message: {exc}"}), 502
+        return _bad_gateway("Failed to send message", exc)
 
     return jsonify(
         {
@@ -223,7 +223,7 @@ def run_project_command(project_id: int):
     except Exception as exc:
         project.session_status = "error"
         db.session.commit()
-        return jsonify({"error": f"Failed to run command: {exc}"}), 502
+        return _bad_gateway("Failed to run command", exc)
 
     return jsonify({"sessionId": session_id, "message": normalized})
 
@@ -242,7 +242,7 @@ def get_project_diff(project_id: int):
         )
         return jsonify({"sessionId": session_id, "diff": diff})
     except Exception as exc:
-        return jsonify({"error": f"Failed to load diff: {exc}"}), 502
+        return _bad_gateway("Failed to load diff", exc)
 
 
 @api_bp.get("/projects/<int:project_id>/approvals")
@@ -311,7 +311,7 @@ def stream_project_events(project_id: int):
     try:
         session_id = _ensure_project_session(project, opencode_client)
     except Exception as exc:
-        return jsonify({"error": f"Failed to ensure session: {exc}"}), 502
+        return _bad_gateway("Failed to ensure session", exc)
 
     db.session.remove()
 
@@ -356,8 +356,13 @@ def stream_project_events(project_id: int):
                     if normalized_line.startswith(":"):
                         continue
                     event_lines.append(normalized_line)
-        except Exception as exc:
-            error_payload = json.dumps({"sessionId": session_id, "error": str(exc)})
+        except Exception:
+            app.logger.exception(
+                "Failed to stream project events for project %s", project.id
+            )
+            error_payload = json.dumps(
+                {"sessionId": session_id, "error": "Stream connection failed"}
+            )
             yield f"event: error\ndata: {error_payload}\n\n"
 
     return Response(
@@ -402,8 +407,9 @@ def stream_global_project_events():
                     if normalized_line.startswith(":"):
                         continue
                     event_lines.append(normalized_line)
-        except Exception as exc:
-            error_payload = json.dumps({"error": str(exc)})
+        except Exception:
+            app.logger.exception("Failed to stream global project events")
+            error_payload = json.dumps({"error": "Stream connection failed"})
             yield f"event: error\ndata: {error_payload}\n\n"
 
     return Response(
@@ -476,7 +482,7 @@ def respond_project_permission(project_id: int, permission_id: str):
     except Exception as exc:
         project.session_status = "error"
         db.session.commit()
-        return jsonify({"error": f"Failed to respond to permission: {exc}"}), 502
+        return _bad_gateway("Failed to respond to permission", exc)
 
 
 @api_bp.post("/projects/<int:project_id>/questions/<request_id>/reply")
@@ -515,7 +521,7 @@ def reply_project_question(project_id: int, request_id: str):
         db.session.commit()
         return jsonify({"ok": ok, "requestId": request_id})
     except Exception as exc:
-        return jsonify({"error": f"Failed to respond to question: {exc}"}), 502
+        return _bad_gateway("Failed to respond to question", exc)
 
 
 @api_bp.post("/projects/<int:project_id>/questions/<request_id>/reject")
@@ -542,4 +548,4 @@ def reject_project_question(project_id: int, request_id: str):
         db.session.commit()
         return jsonify({"ok": ok, "requestId": request_id})
     except Exception as exc:
-        return jsonify({"error": f"Failed to reject question: {exc}"}), 502
+        return _bad_gateway("Failed to reject question", exc)

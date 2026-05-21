@@ -38,7 +38,7 @@ def list_project_sessions(project_id: int):
         _clear_project_session_cache(project.id)
         sessions = _list_project_sessions(project, opencode_client, limit=500)
     except Exception as exc:
-        return jsonify({"error": f"Failed to load sessions: {exc}"}), 502
+        return _bad_gateway("Failed to load sessions", exc)
 
     active_session_id = project.last_session_id
     matching_session_ids = {
@@ -87,7 +87,7 @@ def create_project_session(project_id: int):
         _clear_project_session_cache(project.id)
         db.session.commit()
     except Exception as exc:
-        return jsonify({"error": f"Failed to create session: {exc}"}), 502
+        return _bad_gateway("Failed to create session", exc)
 
     return jsonify(
         {
@@ -129,7 +129,7 @@ def update_project_session(project_id: int):
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        return jsonify({"error": f"Failed to switch session: {exc}"}), 502
+        return _bad_gateway("Failed to switch session", exc)
 
     return jsonify(
         {
@@ -218,9 +218,9 @@ def delete_project_session(project_id: int, session_id: str):
         status_code = exc.response.status_code if exc.response is not None else 502
         if status_code == 404:
             return jsonify({"error": "Session not found"}), 404
-        return jsonify({"error": f"Failed to delete session: {exc}"}), 502
+        return _bad_gateway("Failed to delete session", exc)
     except Exception as exc:
-        return jsonify({"error": f"Failed to delete session: {exc}"}), 502
+        return _bad_gateway("Failed to delete session", exc)
 
     return jsonify(
         {
@@ -257,7 +257,7 @@ def ensure_project_session(project_id: int):
     try:
         session_id = _ensure_project_session(project, opencode_client)
     except Exception as exc:
-        return jsonify({"error": f"Failed to ensure session: {exc}"}), 502
+        return _bad_gateway("Failed to ensure session", exc)
 
     return jsonify({"sessionId": session_id})
 
@@ -289,7 +289,7 @@ def abort_project_session(project_id: int):
     except Exception as exc:
         project.session_status = "error"
         db.session.commit()
-        return jsonify({"error": f"Failed to abort session: {exc}"}), 502
+        return _bad_gateway("Failed to abort session", exc)
 
 
 @api_bp.post("/projects/<int:project_id>/sessions/<session_id>/compact")
@@ -317,7 +317,7 @@ def compact_project_session(project_id: int, session_id: str):
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        return jsonify({"error": f"Failed to compact session: {exc}"}), 502
+        return _bad_gateway("Failed to compact session", exc)
 
 
 @api_bp.post("/projects/<int:project_id>/sessions/<session_id>/summarize")
@@ -363,4 +363,4 @@ def summarize_project_session(project_id: int, session_id: str):
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:
-        return jsonify({"error": f"Failed to summarize session: {exc}"}), 502
+        return _bad_gateway("Failed to summarize session", exc)

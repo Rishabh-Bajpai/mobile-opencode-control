@@ -1,9 +1,12 @@
 import json
 import os
+import ipaddress
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
+from flask import current_app, jsonify
 
 from ..db import db
 from ..models import AppSetting, Project, ScheduledTask, ScheduledTaskRun, TimelineEvent
@@ -63,6 +66,9 @@ __all__ = [
     "_has_external_tts_provider",
     "LOCAL_SESSION_COMMANDS",
     "_apply_task_payload",
+    "_bad_gateway",
+    "_internal_error",
+    "_validate_ntfy_topic_url",
 ]
 
 
@@ -221,6 +227,34 @@ def _ensure_utc(value: datetime) -> datetime:
 def _normalize_project_path(path: str) -> str:
     return os.path.realpath(os.path.abspath(path.strip()))
 
+def _log_route_exception(message: str, exc: Exception) -> None:
+    current_app.logger.exception("%s: %s", message, exc)
+
+def _error_response(message: str, status_code: int, exc: Exception):
+    _log_route_exception(message, exc)
+    return jsonify({"error": message}), status_code
+
+def _bad_gateway(message: str, exc: Exception):
+    return _error_response(message, 502, exc)
+
+def _internal_error(message: str, exc: Exception):
+    return _error_response(message, 500, exc)
+
+def _path_uses_symlink(project_root: Path, candidate: Path) -> bool:
+    try:
+        relative_candidate = candidate.relative_to(project_root)
+    except ValueError:
+        return True
+
+    current = project_root
+    for part in relative_candidate.parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+        if not current.exists():
+            break
+    return False
+
 def _resolve_project_relative_path(
     project: Project,
     relative_path: str,
@@ -228,14 +262,19 @@ def _resolve_project_relative_path(
     allow_root: bool = False,
 ) -> Path:
     project_root = Path(_normalize_project_path(project.path)).resolve()
-    normalized_relative = (relative_path or "").strip()
-    candidate = (project_root / normalized_relative).resolve()
-
-    if candidate != project_root and project_root not in candidate.parents:
+    normalized_relative = os.path.normpath((relative_path or "").strip() or ".")
+    candidate_relative = Path(normalized_relative)
+    if candidate_relative.is_absolute() or ".." in candidate_relative.parts:
         raise ValueError("Path is outside project root")
+    candidate = project_root / candidate_relative
 
-    if not allow_root and candidate == project_root:
+    if candidate == project_root:
+        if allow_root:
+            return candidate
         raise ValueError("A file path is required")
+
+    if _path_uses_symlink(project_root, candidate):
+        raise ValueError("Path traverses a symbolic link")
 
     return candidate
 
@@ -480,16 +519,49 @@ def _get_notification_settings() -> dict[str, str]:
     topic_url = (_get_setting("notification_ntfy_topic_url", "") or "").strip()
     return {"channel": channel, "ntfyTopicUrl": topic_url}
 
+def _host_is_public(hostname: str) -> bool:
+    if not hostname or hostname.lower() == "localhost":
+        return False
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        return True
+    return not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+    )
+
+def _validate_ntfy_topic_url(topic_url: str) -> str:
+    normalized = topic_url.strip()
+    if not normalized:
+        return ""
+
+    parsed = urlparse(normalized)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ValueError("ntfy topic URL must be a valid https URL")
+    if parsed.username or parsed.password:
+        raise ValueError("ntfy topic URL must not include credentials")
+    if not _host_is_public(parsed.hostname or ""):
+        raise ValueError("ntfy topic URL must use a public host")
+    if parsed.path in {"", "/"}:
+        raise ValueError("ntfy topic URL must include a topic path")
+    return normalized
+
 def _set_notification_settings(channel: str, ntfy_topic_url: str) -> None:
     _set_setting("notification_channel", channel)
-    if ntfy_topic_url:
-        _set_setting("notification_ntfy_topic_url", ntfy_topic_url)
+    validated_topic_url = _validate_ntfy_topic_url(ntfy_topic_url)
+    if validated_topic_url:
+        _set_setting("notification_ntfy_topic_url", validated_topic_url)
     else:
         _delete_setting("notification_ntfy_topic_url")
 
 def _send_ntfy_notification(topic_url: str, title: str, message: str) -> None:
     response = requests.post(
-        topic_url,
+        _validate_ntfy_topic_url(topic_url),
         data=message.encode("utf-8"),
         headers={
             "Title": title,

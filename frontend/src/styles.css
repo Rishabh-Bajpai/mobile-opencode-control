@@ -458,6 +458,13 @@ input {
   height: 100%;
 }
 
+.project-list-summary {
+  display: block;
+  margin: 0 0.45rem 0.45rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
 .project-list-empty-card {
   margin: 0.6rem 0.45rem 0;
   border: 1px solid rgba(121, 156, 188, 0.18);

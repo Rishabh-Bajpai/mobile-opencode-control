@@ -5,6 +5,7 @@
 set -e
 
 MAX_ITERATIONS=${1:-10}
+RALPH_MODEL="${RALPH_MODEL:-claude-3-5-sonnet-20241022}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
@@ -14,6 +15,11 @@ LOG_DIR="${RALPH_LOG_DIR:-$SCRIPT_DIR/logs}"
 ITERATION_TIMEOUT_SECONDS="${RALPH_ITERATION_TIMEOUT_SECONDS:-7200}"
 MAX_STAGNANT_ITERATIONS="${RALPH_MAX_STAGNANT_ITERATIONS:-5}"
 STAGNANT_COUNT=0
+
+if ! [[ "$MAX_ITERATIONS" =~ ^[0-9]+$ ]] || [ "$MAX_ITERATIONS" -lt 1 ]; then
+  echo "Usage error: max_iterations must be a positive integer." >&2
+  exit 1
+fi
 
 get_passed_count() {
   if [ ! -f "$PRD_FILE" ]; then
@@ -89,7 +95,10 @@ echo "Starting Ralph - Max iterations: $MAX_ITERATIONS"
 
 mkdir -p "$LOG_DIR"
 
-MODEL_FLAGS=(--model=claude-3-5-sonnet-20241022)
+MODEL_FLAGS=()
+if [ -n "$RALPH_MODEL" ]; then
+  MODEL_FLAGS=(--model="$RALPH_MODEL")
+fi
 
 TIMEOUT_CMD=()
 TIMEOUT_ENABLED=0
