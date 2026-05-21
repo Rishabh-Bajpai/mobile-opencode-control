@@ -1,6 +1,7 @@
 import json
 import os
 import ipaddress
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -535,19 +536,32 @@ def _host_is_public(hostname: str) -> bool:
         or address.is_unspecified
     )
 
-def _allowed_ntfy_hosts() -> set[str]:
-    allowed_hosts = {"ntfy.sh"}
+_NTFY_TOPIC_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._~-]+$")
+
+def _trusted_ntfy_base_url() -> str:
     configured_topic_url = os.getenv("NOTIFICATION_NTFY_TOPIC_URL", "").strip()
     if configured_topic_url:
-        configured_host = urlparse(configured_topic_url).hostname
-        if configured_host:
-            allowed_hosts.add(configured_host.lower())
-    configured_allowed_hosts = os.getenv("NOTIFICATION_NTFY_ALLOWED_HOSTS", "")
-    for host in configured_allowed_hosts.split(","):
-        normalized_host = host.strip().lower()
-        if normalized_host:
-            allowed_hosts.add(normalized_host)
-    return allowed_hosts
+        parsed = urlparse(configured_topic_url)
+        if (
+            parsed.scheme == "https"
+            and parsed.netloc
+            and not parsed.username
+            and not parsed.password
+        ):
+            return f"https://{parsed.netloc}"
+    return "https://ntfy.sh"
+
+def _trusted_ntfy_hostname() -> str:
+    return urlparse(_trusted_ntfy_base_url()).hostname or "ntfy.sh"
+
+def _normalize_ntfy_topic_path(topic_url: str) -> str:
+    parsed = urlparse(topic_url.strip())
+    topic_segments = [segment for segment in parsed.path.split("/") if segment]
+    if not topic_segments:
+        raise ValueError("ntfy topic URL must include a topic path")
+    if not all(_NTFY_TOPIC_SEGMENT_RE.fullmatch(segment) for segment in topic_segments):
+        raise ValueError("ntfy topic URL contains invalid topic characters")
+    return "/".join(topic_segments)
 
 def _validate_ntfy_topic_url(topic_url: str) -> str:
     normalized = topic_url.strip()
@@ -562,13 +576,11 @@ def _validate_ntfy_topic_url(topic_url: str) -> str:
     hostname = (parsed.hostname or "").lower()
     if not _host_is_public(hostname):
         raise ValueError("ntfy topic URL must use a public host")
-    if hostname not in _allowed_ntfy_hosts():
-        raise ValueError("ntfy topic URL must use an approved host")
+    if hostname != _trusted_ntfy_hostname():
+        raise ValueError("ntfy topic URL must use the configured host")
     if parsed.port not in (None, 443):
         raise ValueError("ntfy topic URL must use the default https port")
-    if parsed.path in {"", "/"}:
-        raise ValueError("ntfy topic URL must include a topic path")
-    return normalized
+    return f"{_trusted_ntfy_base_url()}/{_normalize_ntfy_topic_path(normalized)}"
 
 def _set_notification_settings(channel: str, ntfy_topic_url: str) -> None:
     _set_setting("notification_channel", channel)

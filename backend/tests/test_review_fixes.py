@@ -109,7 +109,7 @@ class ReviewFixesTestCase(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "public host"):
             _validate_ntfy_topic_url("https://127.0.0.1/topic")
-        with self.assertRaisesRegex(ValueError, "approved host"):
+        with self.assertRaisesRegex(ValueError, "configured host"):
             _validate_ntfy_topic_url("https://example.com/topic")
 
     def test_resolve_project_relative_path_rejects_symlink_escape(self):
