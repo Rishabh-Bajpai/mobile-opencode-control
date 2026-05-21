@@ -657,8 +657,8 @@ def git_remote(project_id: int):
         return jsonify({"error": "URL is required"}), 400
     try:
         validated_url = _validate_git_remote_url(url)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid remote URL"}), 400
 
     try:
         existing_remote = _get_named_remote(repo, name)

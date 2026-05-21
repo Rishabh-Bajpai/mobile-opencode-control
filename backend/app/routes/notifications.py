@@ -44,8 +44,8 @@ def update_notification_settings():
     ntfy_topic_url = str(body.get("ntfyTopicUrl") or "").strip()
     try:
         _set_notification_settings(channel, ntfy_topic_url)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid ntfy topic URL"}), 400
     db.session.commit()
     return jsonify({"ok": True, "channel": channel, "ntfyTopicUrl": _validate_ntfy_topic_url(ntfy_topic_url)})
 
@@ -69,8 +69,8 @@ def test_ntfy_notification():
     try:
         _send_ntfy_notification(topic_url, title, message)
         return jsonify({"ok": True})
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid ntfy topic URL"}), 400
     except Exception as exc:
         return _bad_gateway("Failed to send ntfy notification", exc)
 
@@ -94,7 +94,7 @@ def send_ntfy_notification():
     try:
         _send_ntfy_notification(topic_url, title, message)
         return jsonify({"ok": True})
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid ntfy topic URL"}), 400
     except Exception as exc:
         return _bad_gateway("Failed to send ntfy notification", exc)

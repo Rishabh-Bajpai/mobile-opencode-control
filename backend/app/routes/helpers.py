@@ -535,6 +535,20 @@ def _host_is_public(hostname: str) -> bool:
         or address.is_unspecified
     )
 
+def _allowed_ntfy_hosts() -> set[str]:
+    allowed_hosts = {"ntfy.sh"}
+    configured_topic_url = os.getenv("NOTIFICATION_NTFY_TOPIC_URL", "").strip()
+    if configured_topic_url:
+        configured_host = urlparse(configured_topic_url).hostname
+        if configured_host:
+            allowed_hosts.add(configured_host.lower())
+    configured_allowed_hosts = os.getenv("NOTIFICATION_NTFY_ALLOWED_HOSTS", "")
+    for host in configured_allowed_hosts.split(","):
+        normalized_host = host.strip().lower()
+        if normalized_host:
+            allowed_hosts.add(normalized_host)
+    return allowed_hosts
+
 def _validate_ntfy_topic_url(topic_url: str) -> str:
     normalized = topic_url.strip()
     if not normalized:
@@ -545,8 +559,13 @@ def _validate_ntfy_topic_url(topic_url: str) -> str:
         raise ValueError("ntfy topic URL must be a valid https URL")
     if parsed.username or parsed.password:
         raise ValueError("ntfy topic URL must not include credentials")
-    if not _host_is_public(parsed.hostname or ""):
+    hostname = (parsed.hostname or "").lower()
+    if not _host_is_public(hostname):
         raise ValueError("ntfy topic URL must use a public host")
+    if hostname not in _allowed_ntfy_hosts():
+        raise ValueError("ntfy topic URL must use an approved host")
+    if parsed.port not in (None, 443):
+        raise ValueError("ntfy topic URL must use the default https port")
     if parsed.path in {"", "/"}:
         raise ValueError("ntfy topic URL must include a topic path")
     return normalized

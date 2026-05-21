@@ -50,7 +50,10 @@ def _copy_legacy_rows(connection, source_table: str, target_table: str, column_m
         if source_expression.isdigit():
             select_columns.append(literal(int(source_expression)).label(target_column))
             continue
-        raise ValueError(f"Unsupported legacy column expression: {source_expression}")
+        raise ValueError(
+            "Unsupported legacy column expression "
+            f"'{source_expression}' in migration from {source_table} to {target_table}"
+        )
 
     connection.execute(
         target.insert().from_select(list(column_map.keys()), select(*select_columns))
