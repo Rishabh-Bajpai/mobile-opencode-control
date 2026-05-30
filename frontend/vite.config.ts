@@ -18,6 +18,18 @@ export default defineConfig({
       "/api": {
         target: `http://localhost:${backendPort}`,
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq, req) => {
+            if (req.url?.includes("/stream")) {
+              proxyReq.setHeader("Connection", "keep-alive");
+            }
+          });
+          proxy.on("proxyRes", (proxyRes, req) => {
+            if (req.url?.includes("/stream")) {
+              delete proxyRes.headers["content-length"];
+            }
+          });
+        },
       },
     },
   },

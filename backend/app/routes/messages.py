@@ -371,6 +371,7 @@ def stream_project_events(project_id: int):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "Transfer-Encoding": "chunked",
             "X-Accel-Buffering": "no",
         },
     )
@@ -418,6 +419,7 @@ def stream_global_project_events():
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "Transfer-Encoding": "chunked",
             "X-Accel-Buffering": "no",
         },
     )
