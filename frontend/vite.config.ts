@@ -18,6 +18,8 @@ export default defineConfig({
       "/api": {
         target: `http://localhost:${backendPort}`,
         changeOrigin: true,
+        proxyTimeout: 30000,
+        timeout: 30000,
         configure: (proxy) => {
           proxy.on("proxyReq", (proxyReq, req) => {
             if (req.url?.includes("/stream")) {
@@ -27,6 +29,12 @@ export default defineConfig({
           proxy.on("proxyRes", (proxyRes, req) => {
             if (req.url?.includes("/stream")) {
               delete proxyRes.headers["content-length"];
+            }
+          });
+          proxy.on("error", (err, _req, res) => {
+            if (res && !res.headersSent) {
+              res.writeHead(502, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: `Backend unavailable: ${err.message}` }));
             }
           });
         },

@@ -998,6 +998,10 @@ def _event_matches_session(event_lines: list[str], session_id: str) -> bool:
     except json.JSONDecodeError:
         return True
 
+    # Unwrap GlobalEvent envelope: { directory, project?, workspace?, payload: { type, properties: { sessionID, ... } } }
+    inner = parsed.get("payload") if isinstance(parsed, dict) else None
+    target = inner if (isinstance(inner, dict) and isinstance(inner.get("type"), str)) else parsed
+
     keys = {"sessionID", "sessionId", "session_id", "session"}
 
     def _walk(value) -> bool:
@@ -1013,7 +1017,7 @@ def _event_matches_session(event_lines: list[str], session_id: str) -> bool:
                     return True
         return False
 
-    return _walk(parsed)
+    return _walk(target)
 
 def _provider_headers(api_key: str) -> dict[str, str]:
     headers: dict[str, str] = {}

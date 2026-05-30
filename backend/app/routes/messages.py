@@ -354,6 +354,8 @@ def stream_project_events(project_id: int):
                         continue
 
                     if normalized_line.startswith(":"):
+                        # Forward SSE comment heartbeats to keep connection alive
+                        yield f"{normalized_line}\n"
                         continue
                     event_lines.append(normalized_line)
         except Exception:
@@ -370,8 +372,6 @@ def stream_project_events(project_id: int):
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Transfer-Encoding": "chunked",
             "X-Accel-Buffering": "no",
         },
     )
@@ -418,8 +418,6 @@ def stream_global_project_events():
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Transfer-Encoding": "chunked",
             "X-Accel-Buffering": "no",
         },
     )
