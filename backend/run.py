@@ -32,7 +32,12 @@ WAITRESS_CHANNEL_TIMEOUT = _read_positive_int_env("WAITRESS_CHANNEL_TIMEOUT", 30
 if __name__ == "__main__":
     if _env_truthy("FLASK_DEBUG"):
         debug_host = "0.0.0.0" if _env_truthy("FLASK_DEBUG_BIND_ALL") else "127.0.0.1"
-        app.run(host=debug_host, port=BACKEND_PORT, threaded=True, use_reloader=True)
+        app.run(
+            host=debug_host,
+            port=BACKEND_PORT,
+            threaded=True,
+            use_reloader=_env_truthy("FLASK_DEBUG_RELOAD"),
+        )
     else:
         try:
             serve(

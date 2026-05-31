@@ -3573,9 +3573,7 @@ async function loadDiff(projectId: string) {
       }
 
       setMessages((current) => [
-        ...current.filter(
-          (m) => !m.id.startsWith("local-") && m.id !== result.message.id
-        ),
+        ...current.filter((m) => m.id !== result.message.id && !m.id.startsWith("local-")),
         result.message,
       ]);
       await refreshProjectsAndStatus(activeProjectId);
