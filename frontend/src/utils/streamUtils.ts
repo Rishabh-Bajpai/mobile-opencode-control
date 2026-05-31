@@ -209,6 +209,7 @@ export type StreamEventClassification = {
   hasApprovalUpdate: boolean;
   hasPartDelta: boolean;
   hasPartUpdate: boolean;
+  hasPartRemove: boolean;
   hasCompactionUpdate: boolean;
   hasSessionUpdate: boolean;
   hasTodoUpdate: boolean;
@@ -225,6 +226,7 @@ export function classifyStreamEvent(data: string): StreamEventClassification {
     hasApprovalUpdate: false,
     hasPartDelta: false,
     hasPartUpdate: false,
+    hasPartRemove: false,
     hasCompactionUpdate: false,
     hasSessionUpdate: false,
     hasTodoUpdate: false,
@@ -254,7 +256,7 @@ export function classifyStreamEvent(data: string): StreamEventClassification {
       } else if (eventType === "message.part.updated") {
         result.hasPartUpdate = true;
       } else if (eventType === "message.part.removed") {
-        result.hasPartUpdate = true;
+        result.hasPartRemove = true;
       } else if (eventType === "message.updated") {
         result.hasMessageUpdate = true;
       } else if (eventType === "message.removed") {
@@ -289,8 +291,10 @@ export function classifyStreamEvent(data: string): StreamEventClassification {
         result.hasQuestionUpdate = true;
       } else if (directType === "message.part.delta") {
         result.hasPartDelta = true;
-      } else if (directType === "message.part.updated" || directType === "message.part.removed") {
+      } else if (directType === "message.part.updated") {
         result.hasPartUpdate = true;
+      } else if (directType === "message.part.removed") {
+        result.hasPartRemove = true;
       } else if (directType === "message.updated") {
         result.hasMessageUpdate = true;
       } else if (directType === "message.removed") {
@@ -353,6 +357,13 @@ export type ExtractedPart = {
   rawEventType: string | null;
 };
 
+export type ExtractedPartRemoval = {
+  sessionID: string | null;
+  messageID: string | null;
+  partID: string | null;
+  rawEventType: string | null;
+};
+
 export function extractPartFromEvent(eventLines: string[]): ExtractedPart | null {
   const payload = extractPayloadFromDataLines(eventLines);
   if (!payload) return null;
@@ -379,6 +390,37 @@ export function extractPartFromEvent(eventLines: string[]): ExtractedPart | null
   }
 
   return null;
+}
+
+export function extractPartRemovalFromEvent(eventLines: string[]): ExtractedPartRemoval | null {
+  const payload = extractPayloadFromDataLines(eventLines);
+  if (!payload || payload.type !== "message.part.removed") return null;
+
+  const properties = payload.properties as Record<string, unknown> | undefined;
+  if (!properties) return null;
+
+  const sessionID = typeof properties.sessionID === "string" ? properties.sessionID : null;
+  const part = properties.part as Record<string, unknown> | undefined;
+  const messageID =
+    typeof properties.messageID === "string"
+      ? properties.messageID
+      : part && typeof part.messageID === "string"
+        ? part.messageID
+        : null;
+  const partID =
+    typeof properties.partID === "string"
+      ? properties.partID
+      : part && typeof part.id === "string"
+        ? part.id
+        : null;
+  const rawEventType = typeof payload.type === "string" ? payload.type : null;
+
+  return {
+    sessionID,
+    messageID,
+    partID,
+    rawEventType,
+  };
 }
 
 export function extractMessageFromEvent(eventLines: string[]): Record<string, unknown> | null {
