@@ -83,7 +83,7 @@ import { formatCompactSessionId, formatElapsedShort, formatSessionOptionLabel, f
 import { buildGroupedTimelineEntries, buildMessageStableKey, getNonTextParts, timelineEventToTaskRun } from "./utils/messageUtils";
 import { buildProjectPathFromRoot, extractRootFromProjectPath, getSuggestedProjectRoot, normalizeProjectRootPath, projectInitials } from "./utils/projectUtils";
 import { toDateInputPartsInTimezone, toDateTimeInputValueInTimezone, toIsoInTimezone } from "./utils/taskUtils";
-import { parseApprovalFromStreamData, parseQuestionFromStreamData, classifyStreamEvent, extractMessagePartText, extractPartFromEvent, extractPayloadFromDataLines, extractTodosFromEvent, extractDiffFromEvent, extractSessionStatusFromEvent } from "./utils/streamUtils";
+import { parseApprovalFromStreamData, parseQuestionFromStreamData, classifyStreamEvent, extractMessageFromEvent, extractMessagePartText, extractPartFromEvent, extractPartRemovalFromEvent, extractDiffFromEvent, extractSessionStatusFromEvent } from "./utils/streamUtils";
 import { buildInitialQuestionDraft, buildQuestionReplyAnswers, getManualInstallMessage, inferTelemetryCategory, markerTimeWindowMs, nextReconnectDelayMs, parseSlashCommand, removeQuestionFromList, resolveDevFixtureMode, schedulerHeartbeatState, scrollEntryIntoView } from "./utils/miscUtils";
 import { LoginView } from "./components/auth/LoginView";
 import { AgentActivityCard } from "./components/chat/AgentActivityCard";
@@ -1718,44 +1718,7 @@ const [gitDiffEntries, setGitDiffEntries] = useState<GitDiffEntry[]>([]);
         setActiveSessionId(messageResult.sessionId);
         updateProjectSessionSelection(projectId, messageResult.sessionId);
       }
-      setMessages((current) => {
-        const freshMessages = messageResult.messages;
-        const freshById = new Map<string, ChatMessage>(freshMessages.map((m: ChatMessage) => [m.id, m]));
-        const result: ChatMessage[] = [];
-        const seenIds = new Set<string>();
-
-        // Add fresh messages, merging parts from current state
-        for (const fm of freshMessages) {
-          const existing = current.find((cm) => cm.id === fm.id);
-          if (existing && Array.isArray(existing.parts) && Array.isArray(fm.parts)) {
-            // Merge: keep parts from current UI state if server version has fewer parts
-            // This preserves tool call / reasoning parts added via inline SSE events
-            const mergedParts = existing.parts.length > fm.parts.length
-              ? existing.parts
-              : fm.parts;
-            result.push({ ...fm, parts: mergedParts });
-          } else if (existing && Array.isArray(existing.parts) && !Array.isArray(fm.parts)) {
-            // Server message has no parts — keep UI parts
-            result.push({ ...fm, parts: existing.parts });
-          } else {
-            result.push(fm);
-          }
-          seenIds.add(fm.id);
-        }
-
-        // Keep in-progress messages from current that aren't in fresh response
-        for (const cm of current) {
-          if (!seenIds.has(cm.id)) {
-            const freshVersion = freshById.get(cm.id);
-            if (!freshVersion) {
-              result.push(cm);
-              seenIds.add(cm.id);
-            }
-          }
-        }
-
-        return result;
-      });
+      setMessages(messageResult.messages);
       setTaskTimelineEvents(messageResult.timelineEvents ?? []);
       const resultSessionId = messageResult.sessionId;
       const lastAssistant = [...messageResult.messages].reverse().find((m) => m.role === "assistant");
@@ -2493,65 +2456,69 @@ async function loadDiff(projectId: string) {
           }
         }
 
-        // --- Message update (message.updated) — inline upsert ---
-        if (classification.hasMessageUpdate) {
-          const msgPayload = extractPayloadFromDataLines(eventLines);
-          if (msgPayload) {
-            const properties = msgPayload.properties as Record<string, unknown> | undefined;
-            if (properties) {
-              const info = properties.info as Record<string, unknown> | undefined;
-              if (info && typeof info.id === "string" && typeof info.role === "string") {
-                setMessages((current) => {
-                  const existingIdx = current.findIndex((m) => m.id === info.id);
-                  if (existingIdx >= 0) {
-                    const freshParts = Array.isArray(info.parts) ? info.parts as ChatMessage["parts"] : undefined;
-                    const freshText = typeof info.text === "string" ? info.text : undefined;
-                    const next = [...current];
-                    next[existingIdx] = {
-                      ...current[existingIdx],
-                      ...(freshParts ? { parts: freshParts } : {}),
-                      ...(freshText !== undefined ? { text: freshText } : {}),
-                    };
-                    return next;
-                  }
-                  // New message — validate required fields before casting
-                  const msg = {
-                    id: info.id,
-                    role: info.role as ChatMessage["role"],
-                    text: typeof info.text === "string" ? info.text : "",
-                    createdAt: typeof info.time === "object" && info.time
-                      ? new Date((info.time as Record<string, unknown>).created as number).toISOString()
-                      : new Date().toISOString(),
-                    parts: Array.isArray(info.parts) ? info.parts as ChatMessage["parts"] : [],
-                  };
-                  return [...current, msg];
-                });
-              }
-            }
+        if (classification.hasPartRemove) {
+          const extracted = extractPartRemovalFromEvent(eventLines);
+          if (extracted?.messageID && extracted.partID) {
+            setMessages((current) => {
+              const msgIndex = current.findIndex((m) => m.id === extracted.messageID);
+              if (msgIndex < 0) return current;
+
+              const existing = current[msgIndex];
+              const updatedParts = existing.parts.filter(
+                (part) => !(typeof part === "object" && part !== null && (part as Record<string, unknown>).id === extracted.partID)
+              );
+              if (updatedParts.length === existing.parts.length) return current;
+
+              const next = [...current];
+              next[msgIndex] = {
+                ...existing,
+                parts: updatedParts,
+                text: updatedParts
+                  .filter(
+                    (part) =>
+                      typeof part === "object" &&
+                      part !== null &&
+                      (part as Record<string, unknown>).type === "text"
+                  )
+                  .map((part) => (part as Record<string, string>).text || "")
+                  .join("\n")
+                  .trim(),
+              };
+              return next;
+            });
           }
         }
 
-        // --- Todo update ---
-        if (classification.hasTodoUpdate) {
-          const todoData = extractTodosFromEvent(eventLines);
-          if (todoData && todoData.todos.length > 0) {
-            setInvocationHeaders((current) => {
-              const next = { ...current };
-              for (const key of Object.keys(next)) {
-                if (next[key].artifacts) {
-                  const existingArtifacts = next[key].artifacts || {};
-                  for (const todo of todoData.todos) {
-                    const t = todo as Record<string, unknown>;
-                    const content = String(t.content || "");
-                    const status = String(t.status || "");
-                    if (content && !existingArtifacts[content]) {
-                      existingArtifacts[content] = { description: "", status };
-                    }
-                  }
-                  next[key] = { ...next[key], artifacts: existingArtifacts };
-                }
+        // --- Message update (message.updated) — inline upsert ---
+        if (classification.hasMessageUpdate) {
+          const info = extractMessageFromEvent(eventLines);
+          if (info && typeof info.id === "string" && typeof info.role === "string") {
+            const infoId = info.id;
+            const infoRole = info.role as ChatMessage["role"];
+            setMessages((current) => {
+              const existingIdx = current.findIndex((m) => m.id === infoId);
+              if (existingIdx >= 0) {
+                const freshParts = Array.isArray(info.parts) ? info.parts as ChatMessage["parts"] : undefined;
+                const freshText = typeof info.text === "string" ? info.text : undefined;
+                const next = [...current];
+                next[existingIdx] = {
+                  ...current[existingIdx],
+                  ...(freshParts ? { parts: freshParts } : {}),
+                  ...(freshText !== undefined ? { text: freshText } : {}),
+                };
+                return next;
               }
-              return next;
+              // New message — validate required fields before casting
+              const msg = {
+                id: infoId,
+                role: infoRole,
+                text: typeof info.text === "string" ? info.text : "",
+                createdAt: typeof info.time === "object" && info.time
+                  ? new Date((info.time as Record<string, unknown>).created as number).toISOString()
+                  : new Date().toISOString(),
+                parts: Array.isArray(info.parts) ? info.parts as ChatMessage["parts"] : [],
+              };
+              return [...current, msg];
             });
           }
         }

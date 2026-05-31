@@ -107,7 +107,9 @@ PY
 }
 
 wait_for_opencode() {
-  local port="$1" url="http://127.0.0.1:${port}/global/health" max_tries=40 attempt=1
+  local port="$1"
+  local url="http://127.0.0.1:${port}/global/health"
+  local max_tries=40 attempt=1
   while (( attempt <= max_tries )); do
     curl -fsS "$url" >/dev/null 2>&1 && return 0
     sleep 0.25
@@ -124,7 +126,7 @@ else
 fi
 FRONTEND_ALLOWED_HOSTS="${FRONTEND_ALLOWED_HOSTS:-localhost,127.0.0.1}"
 FRONTEND_ORIGINS="${FRONTEND_ORIGINS:-http://localhost:${FRONTEND_PORT}}"
-FRONTEND_BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
+  FRONTEND_BASE_URL="http://localhost:${FRONTEND_PORT}"
 OPENCODE_CORS_ORIGINS="${OPENCODE_CORS_ORIGINS:-$FRONTEND_ORIGINS}"
 
 # ─── 2. OpenCode ───
