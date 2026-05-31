@@ -2464,9 +2464,11 @@ async function loadDiff(projectId: string) {
               if (msgIndex < 0) return current;
 
               const existing = current[msgIndex];
-              const updatedParts = existing.parts.filter(
-                (part) => !(typeof part === "object" && part !== null && (part as Record<string, unknown>).id === extracted.partID)
-              );
+              const isPartToRemove = (part: ChatMessage["parts"][number]) =>
+                typeof part === "object" &&
+                part !== null &&
+                (part as Record<string, unknown>).id === extracted.partID;
+              const updatedParts = existing.parts.filter((part) => !isPartToRemove(part));
               if (updatedParts.length === existing.parts.length) return current;
 
               const next = [...current];
