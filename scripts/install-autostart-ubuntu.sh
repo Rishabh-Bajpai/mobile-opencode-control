@@ -79,6 +79,7 @@ resolve_opencode_bin() {
   fi
 
   for candidate in \
+    "$APP_HOME/.opencode/bin/opencode" \
     "$APP_HOME/.local/bin/opencode" \
     "/usr/local/bin/opencode" \
     "/usr/bin/opencode"; do

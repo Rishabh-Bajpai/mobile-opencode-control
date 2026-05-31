@@ -22,19 +22,19 @@ is_running() {
   if [[ ! -f "$pid_file" ]]; then
     return 1
   fi
-
   local pid
   pid="$(cat "$pid_file")"
-  if [[ -z "$pid" ]]; then
-    return 1
-  fi
-
+  [[ -n "$pid" ]] || return 1
   kill -0 "$pid" >/dev/null 2>&1
 }
 
+systemd_active() {
+  local unit="$1"
+  systemctl is-active --quiet "$unit" 2>/dev/null
+}
+
 require_dep() {
-  local dep="$1"
-  local hint="$2"
+  local dep="$1" hint="$2"
   if ! command -v "$dep" >/dev/null 2>&1; then
     echo "Missing dependency: $dep"
     echo "$hint"
@@ -57,24 +57,32 @@ if [[ ! -d "$ROOT_DIR/frontend/node_modules" ]]; then
   npm --prefix "$ROOT_DIR/frontend" install
 fi
 
-if is_running "$OPENCODE_PID_FILE" || is_running "$BACKEND_PID_FILE" || is_running "$FRONTEND_PID_FILE"; then
-  echo "One or more services are already running. Use scripts/stop-app.sh first."
+BACKEND_SYSTEMD_UNIT="mobile-opencode-control-backend.service"
+FRONTEND_SYSTEMD_UNIT="mobile-opencode-control-frontend.service"
+OPENCODE_SYSTEMD_UNIT="mobile-opencode-control-opencode.service"
+
+BACKEND_USE_SYSTEMD=false
+FRONTEND_USE_SYSTEMD=false
+OPENCODE_USE_SYSTEMD=false
+
+systemd_active "$BACKEND_SYSTEMD_UNIT" && BACKEND_USE_SYSTEMD=true
+systemd_active "$FRONTEND_SYSTEMD_UNIT" && FRONTEND_USE_SYSTEMD=true
+systemd_active "$OPENCODE_SYSTEMD_UNIT" && OPENCODE_USE_SYSTEMD=true
+
+if is_running "$BACKEND_PID_FILE" || is_running "$FRONTEND_PID_FILE" || is_running "$OPENCODE_PID_FILE"; then
+  echo "One or more services are already running (manual scripts)."
+  echo "Use scripts/stop-app.sh first, or check systemd services."
   exit 1
 fi
 
+# ─── port picking helper ───
 pick_port() {
-  local base_port="$1"
-  local attempts="${2:-60}"
-  local sleep_seconds="${4:-0.5}"
+  local base_port="$1" attempts="${2:-60}" sleep_seconds="${3:-0.5}"
   "$ROOT_DIR/.venv/bin/python" - "$base_port" "$attempts" "$sleep_seconds" <<'PY'
-import socket
-import time
-import sys
-
+import socket, time, sys
 base_port = int(sys.argv[1])
 attempts = int(sys.argv[2])
 sleep_seconds = float(sys.argv[3])
-
 for attempt in range(attempts):
     for offset in range(3):
         candidate = base_port + offset
@@ -82,22 +90,18 @@ for attempt in range(attempts):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("127.0.0.1", candidate))
-        except OSError as exc:
+        except OSError:
             pass
         else:
             print(candidate)
             sock.close()
             sys.exit(0)
         finally:
-            try:
-                sock.close()
-            except Exception:
-                pass
-
+            try: sock.close()
+            except Exception: pass
     if attempt < attempts - 1:
         time.sleep(sleep_seconds)
-
-print(f"No free port available in range {base_port}-{base_port + 2}", file=sys.stderr)
+print(f"No free port in range {base_port}-{base_port + 2}", file=sys.stderr)
 sys.exit(1)
 PY
 }
@@ -105,55 +109,79 @@ PY
 wait_for_opencode() {
   local port="$1"
   local url="http://127.0.0.1:${port}/global/health"
-  local max_tries=40
-  local attempt=1
+  local max_tries=40 attempt=1
   while (( attempt <= max_tries )); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
-      return 0
-    fi
+    curl -fsS "$url" >/dev/null 2>&1 && return 0
     sleep 0.25
     (( attempt += 1 ))
   done
   return 1
 }
 
-OPENCODE_BASE_PORT="${OPENCODE_APP_PORT:-40961}"
-OPENCODE_PORT="$(pick_port "$OPENCODE_BASE_PORT")"
-OPENCODE_BASE_URL="http://127.0.0.1:${OPENCODE_PORT}"
-
-BACKEND_BASE_PORT="${BACKEND_APP_PORT:-38473}"
-BACKEND_PORT="$(pick_port "$BACKEND_BASE_PORT")"
-BACKEND_BASE_URL="http://127.0.0.1:${BACKEND_PORT}"
-
-FRONTEND_BASE_PORT="${FRONTEND_APP_PORT:-5173}"
-FRONTEND_PORT="$(pick_port "$FRONTEND_BASE_PORT")"
-FRONTEND_BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
+# ─── 1. Resolve frontend port first (needed by OpenCode CORS and backend) ───
+if $FRONTEND_USE_SYSTEMD; then
+  FRONTEND_PORT="$(cat "$FRONTEND_PORT_FILE" 2>/dev/null || echo "${FRONTEND_APP_PORT:-5173}")"
+else
+  FRONTEND_PORT="$(pick_port "${FRONTEND_APP_PORT:-5173}")"
+fi
 FRONTEND_ALLOWED_HOSTS="${FRONTEND_ALLOWED_HOSTS:-localhost,127.0.0.1}"
 FRONTEND_ORIGINS="${FRONTEND_ORIGINS:-http://localhost:${FRONTEND_PORT}}"
+FRONTEND_BASE_URL="http://localhost:${FRONTEND_PORT}"
 OPENCODE_CORS_ORIGINS="${OPENCODE_CORS_ORIGINS:-$FRONTEND_ORIGINS}"
 
-echo "Starting OpenCode server..."
-opencode serve --hostname 127.0.0.1 --port "$OPENCODE_PORT" --cors "$OPENCODE_CORS_ORIGINS" >"$LOG_DIR/opencode.log" 2>&1 &
-echo $! >"$OPENCODE_PID_FILE"
-echo "$OPENCODE_PORT" >"$OPENCODE_PORT_FILE"
-echo "$OPENCODE_BASE_URL" >"$OPENCODE_URL_FILE"
+# ─── 2. OpenCode ───
+if $OPENCODE_USE_SYSTEMD; then
+  echo "OpenCode is managed by systemd ($OPENCODE_SYSTEMD_UNIT)."
+  OPENCODE_PORT="$(cat "$OPENCODE_PORT_FILE" 2>/dev/null || echo "${OPENCODE_APP_PORT:-40961}")"
+else
+  OPENCODE_PORT="$(pick_port "${OPENCODE_APP_PORT:-40961}")"
+  echo "Starting OpenCode server..."
+  opencode serve \
+    --hostname 127.0.0.1 \
+    --port "$OPENCODE_PORT" \
+    --cors "$OPENCODE_CORS_ORIGINS" \
+    >"$LOG_DIR/opencode.log" 2>&1 &
+  echo $! >"$OPENCODE_PID_FILE"
+  echo "$OPENCODE_PORT" >"$OPENCODE_PORT_FILE"
+  echo "http://127.0.0.1:${OPENCODE_PORT}" >"$OPENCODE_URL_FILE"
 
-if ! wait_for_opencode "$OPENCODE_PORT"; then
-  echo "OpenCode failed to start on ${OPENCODE_BASE_URL}. Check: $LOG_DIR/opencode.log"
-  exit 1
+  if ! wait_for_opencode "$OPENCODE_PORT"; then
+    echo "OpenCode failed to start on port ${OPENCODE_PORT}. Check: $LOG_DIR/opencode.log"
+    exit 1
+  fi
 fi
+OPENCODE_BASE_URL="http://127.0.0.1:${OPENCODE_PORT}"
 
-echo "Starting backend with project venv..."
-OPENCODE_BASE_URL="$OPENCODE_BASE_URL" FRONTEND_ORIGINS="$FRONTEND_ORIGINS" FRONTEND_ORIGIN="${FRONTEND_ORIGIN:-$(printf '%s' "$FRONTEND_ORIGINS" | cut -d',' -f1)}" BACKEND_PORT="$BACKEND_PORT" "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/backend/run.py" >"$LOG_DIR/backend.log" 2>&1 &
-echo $! >"$BACKEND_PID_FILE"
-echo "$BACKEND_PORT" >"$BACKEND_PORT_FILE"
-echo "$BACKEND_BASE_URL" >"$BACKEND_URL_FILE"
+# ─── 3. Backend ───
+if $BACKEND_USE_SYSTEMD; then
+  echo "Backend is managed by systemd ($BACKEND_SYSTEMD_UNIT)."
+  BACKEND_PORT="$(cat "$BACKEND_PORT_FILE" 2>/dev/null || echo "${BACKEND_APP_PORT:-38473}")"
+else
+  BACKEND_PORT="$(pick_port "${BACKEND_APP_PORT:-38473}")"
+  echo "Starting backend..."
+  OPENCODE_BASE_URL="$OPENCODE_BASE_URL" \
+    FRONTEND_ORIGINS="$FRONTEND_ORIGINS" \
+    FRONTEND_ORIGIN="${FRONTEND_ORIGIN:-$(printf '%s' "$FRONTEND_ORIGINS" | cut -d',' -f1)}" \
+    BACKEND_PORT="$BACKEND_PORT" \
+    "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/backend/run.py" \
+    >"$LOG_DIR/backend.log" 2>&1 &
+  echo $! >"$BACKEND_PID_FILE"
+  echo "$BACKEND_PORT" >"$BACKEND_PORT_FILE"
+fi
+BACKEND_BASE_URL="http://127.0.0.1:${BACKEND_PORT}"
 
-echo "Starting frontend dev server..."
-BACKEND_PORT="$BACKEND_PORT" FRONTEND_ALLOWED_HOSTS="$FRONTEND_ALLOWED_HOSTS" npm --prefix "$ROOT_DIR/frontend" run dev -- --host 0.0.0.0 --port "$FRONTEND_PORT" >"$LOG_DIR/frontend.log" 2>&1 &
-echo $! >"$FRONTEND_PID_FILE"
-echo "$FRONTEND_PORT" >"$FRONTEND_PORT_FILE"
-echo "$FRONTEND_BASE_URL" >"$FRONTEND_URL_FILE"
+# ─── 4. Frontend ───
+if $FRONTEND_USE_SYSTEMD; then
+  echo "Frontend is managed by systemd ($FRONTEND_SYSTEMD_UNIT)."
+else
+  echo "Starting frontend dev server..."
+  BACKEND_PORT="$BACKEND_PORT" \
+    FRONTEND_ALLOWED_HOSTS="$FRONTEND_ALLOWED_HOSTS" \
+    npm --prefix "$ROOT_DIR/frontend" run dev -- --host 0.0.0.0 --port "$FRONTEND_PORT" \
+    >"$LOG_DIR/frontend.log" 2>&1 &
+  echo $! >"$FRONTEND_PID_FILE"
+  echo "$FRONTEND_PORT" >"$FRONTEND_PORT_FILE"
+fi
 
 sleep 2
 

@@ -46,4 +46,5 @@ fi
 exec env \
   OPENCODE_BASE_URL="$OPENCODE_BASE_URL" \
   BACKEND_PORT="$BACKEND_PORT" \
+  FRONTEND_ORIGINS="${FRONTEND_ORIGINS:-http://localhost:5173}" \
   "$PYTHON_BIN" "$ROOT_DIR/backend/run.py"
